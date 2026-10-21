@@ -154,13 +154,16 @@ SYSTEM_PROMPT = """你是邻里智服，一个面向社区居民的中文服务�
 
 def _build_graph():
     model = ChatOpenAI(
-        model=os.getenv("DEEPSEEK_MODEL", "deepseek-v4-flash"),
+        model=os.getenv("DEEPSEEK_MODEL", "deepseek-flash"),
         api_key=os.environ["DEEPSEEK_API_KEY"],
         base_url=os.getenv("DEEPSEEK_BASE_URL", "https://api.deepseek.com"),
         temperature=0.2,
         timeout=15,
         max_retries=0,
         max_tokens=1200,
+        # This graph stores tool results, not provider reasoning traces.
+        # Disable DeepSeek's default thinking mode for compatible tool turns.
+        extra_body={"thinking":{"type":"disabled"}},
     ).bind_tools(TOOLS)
 
     def call_model(state: AgentState) -> dict:

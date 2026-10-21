@@ -108,6 +108,7 @@ BOOTSTRAP_ADMIN_PASSWORD=你自己设置的12至128位强密码
 - `python scripts/render-deploy.py status` 查看部署状态，`python scripts/render-deploy.py logs` 查看日志。命令只读取根目录私密 `.env.deploy`，不需要重新安装本地依赖。
 - 初始管理员凭据保存在本地 `deploy-private/administrator.env`；不要上传。可在登录后的账户设置修改密码。初始化环境变量移除后，账号仍保存在 Neon。
 - Render 的私密环境变量已存放数据库和模型凭据；模型请求可能产生供应商费用，Render 和 Neon 使用本次选择的免费规格。
+- Agent 显式禁用 DeepSeek 默认 thinking 模式，避免普通工具对话历史未保存 `reasoning_content` 时下一轮请求被拒绝；当前界面只展示答复与资料引用。依据：[DeepSeek Thinking Mode](https://api-docs.deepseek.com/guides/thinking_mode/)。
 
 ## 浏览器不能操作时
 
