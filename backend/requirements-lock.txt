@@ -36,6 +36,8 @@ pydantic_core==2.50.1
 python-dotenv==1.2.4
 # New document-parser requirement; installation is left to the user.
 pypdf==6.21.1
+psycopg==3.3.6
+psycopg-binary==3.3.6
 PyYAML==6.0.3
 regex==2026.9.29
 requests==2.34.2

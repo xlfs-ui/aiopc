@@ -82,7 +82,8 @@ def main():
     elif args.action=='logs':
         from urllib.parse import urlencode
         owner=state['service']['ownerId']
-        print(redact(request('logs?'+urlencode({'ownerId':owner,'resource':service_id,'limit':80,'direction':'backward'}))))
+        result=request('logs?'+urlencode({'ownerId':owner,'resource':service_id,'limit':80,'direction':'backward'}))
+        print(redact({'hasMore':result.get('hasMore'),'logs':[{'at':row['timestamp'],'message':row['message']} for row in result.get('logs',[])]}))
     else:
         for key in ('BOOTSTRAP_ADMIN_USERNAME','BOOTSTRAP_ADMIN_PASSWORD'):
             request('services/'+service_id+'/env-vars/'+key,'DELETE')

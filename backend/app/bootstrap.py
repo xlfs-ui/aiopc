@@ -1,5 +1,6 @@
 """One-time administrator provisioning from private deployment environment."""
 import os
+import logging
 from fastapi import HTTPException
 from app import storage
 
@@ -15,6 +16,7 @@ def bootstrap_admin():
         existing=db.execute('SELECT role FROM users WHERE username=?',(username,)).fetchone()
     if existing:
         if existing['role']!='admin': raise RuntimeError('Bootstrap account exists and is not an administrator')
+        logging.getLogger('uvicorn.error').info('Existing administrator retained in persistent database')
         return
     from app.auth import create_user
     try: create_user(username,'社区管理员',password,role='admin')
@@ -23,5 +25,6 @@ def bootstrap_admin():
         with storage.connection() as db:
             existing=db.execute('SELECT role FROM users WHERE username=?',(username,)).fetchone()
         if not existing or existing['role']!='admin': raise RuntimeError('Administrator provisioning conflict') from None
+    logging.getLogger('uvicorn.error').info('Administrator provisioned in persistent database')
     # Existing accounts are never promoted or reset on restart. Remove the
     # bootstrap secret in Render once the first deployment succeeds.

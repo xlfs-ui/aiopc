@@ -63,6 +63,7 @@ def initialize(connection,url):
                 for statement in SCHEMA:
                     if 'CREATE VIRTUAL TABLE' in statement: continue
                     statement=statement.replace('original BLOB','original BYTEA')
+                    statement=statement.replace('session_user ON','sessions_by_user ON')
                     if statement.startswith('CREATE TABLE IF NOT EXISTS audit '): statement=statement.replace('id INTEGER PRIMARY KEY','id BIGSERIAL PRIMARY KEY')
                     connection.execute(statement)
                 for table,columns in BUSINESS.items():
