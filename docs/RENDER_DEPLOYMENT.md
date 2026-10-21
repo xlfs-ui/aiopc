@@ -1,6 +1,6 @@
 # GitHub + Render Free + Neon 部署
 
-当前状态：部署配置已经写入项目；尚未取得仓库访问、Neon 连接串和 Render 部署权限，因此没有创建公开服务或产生已验证的公网地址。
+当前状态：代码已上传 https://github.com/xlfs-ui/aiopc，Render 免费服务已上线。公网地址为 https://neighborhood-agent.onrender.com 。首页、前端 JS/CSS、健康检查和验证码接口均返回 200；健康检查确认 `storage=postgresql`。未登录用户接口返回 401，生产 API 文档、`.env` 和数据库文件路径均返回 404。
 
 ## 架构
 
@@ -62,7 +62,7 @@ COOKIE_SECURE=true
 DATABASE_URL=你的Neon连接池URL
 DEEPSEEK_API_KEY=你的后端对话密钥
 DEEPSEEK_BASE_URL=https://api.deepseek.com
-DEEPSEEK_MODEL=deepseek-v4-flash
+DEEPSEEK_MODEL=deepseek-flash
 EMBEDDING_BASE_URL=https://api.openai-proxy.org/v1
 EMBEDDING_MODEL=text-embedding-3-small
 EMBEDDING_API_KEY=你的后端嵌入密钥
@@ -97,7 +97,17 @@ BOOTSTRAP_ADMIN_PASSWORD=你自己设置的12至128位强密码
 
 上线后应核对首页、验证码、注册登录、会话、资料搜索、工单归属和知识库。再次部署后确认刚注册的账号和新增记录仍存在，再将网址交付使用。
 
-本地没有安装新增 `psycopg` 依赖，云端会从依赖清单安装。Docker 守护进程未运行时，不能声称本地 Docker 镜像已构建通过；真实 PostgreSQL 和云构建以部署结果为准。
+本地没有安装新增 `psycopg` 依赖；Render 已从依赖清单安装并构建镜像。云端驱动已锁定为 `psycopg` / `psycopg-binary` 3.3.6。首次云端启动发现 PostgreSQL 的 `session_user` 保留字与原索引名冲突，已将云端索引改名为 `sessions_by_user`。
+
+## 本次部署及后续更新
+
+- 仓库为用户现有的公开仓库，只上传审核过的应用源码和部署文件。
+- Git 上传使用本机已有 Git Credential Manager；没有使用或保存聊天中的 GitHub 密码。本次命令跳过全局的第三方 GitHub URL 代理配置，直接连接 GitHub，没有修改全局配置。
+- 推送 checkout 为 `F:\aiopc\deploy-private\repository`；原开发目录仍为 `F:\aiopc`。后续开发修改要先同步到此 checkout，再提交推送，或自行将开发根目录配置成正式 Git 工作区。
+- 本次 Render 是通过公开仓库 URL + API 创建的；尚未验证 GitHub 应用 webhook 自动部署。推送后在 Render 选择 **Manual Deploy → Deploy latest commit**，或者在激活已有 Conda 环境后于根目录运行 `python scripts/render-deploy.py deploy`。
+- `python scripts/render-deploy.py status` 查看部署状态，`python scripts/render-deploy.py logs` 查看日志。命令只读取根目录私密 `.env.deploy`，不需要重新安装本地依赖。
+- 初始管理员凭据保存在本地 `deploy-private/administrator.env`；不要上传。可在登录后的账户设置修改密码。初始化环境变量移除后，账号仍保存在 Neon。
+- Render 的私密环境变量已存放数据库和模型凭据；模型请求可能产生供应商费用，Render 和 Neon 使用本次选择的免费规格。
 
 ## 浏览器不能操作时
 

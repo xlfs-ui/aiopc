@@ -15,8 +15,9 @@ local=dotenv_values(ROOT/'.env')
 
 
 def redact(value):
-    text=json.dumps(value,ensure_ascii=False)
-    for key,value in {**local,**settings}.items():
+    text=json.dumps(value,ensure_ascii=True)
+    admin=dotenv_values(PRIVATE/'administrator.env') if (PRIVATE/'administrator.env').exists() else {}
+    for key,value in {**local,**settings,**admin}.items():
         if value and ('KEY' in key or 'PASSWORD' in key or key=='DATABASE_URL'):
             text=text.replace(value,'[REDACTED]')
     return text
@@ -63,7 +64,7 @@ def create():
 
 def main():
     parser=argparse.ArgumentParser()
-    parser.add_argument('action',choices=['create','status','logs','remove-bootstrap'])
+    parser.add_argument('action',choices=['create','status','logs','deploy','remove-bootstrap'])
     args=parser.parse_args()
     PRIVATE.mkdir(exist_ok=True)
     state_path=PRIVATE/'render-state.json'
@@ -75,7 +76,9 @@ def main():
         return
     state=json.loads(state_path.read_text(encoding='utf-8'))
     service_id=state['service']['id']
-    if args.action=='status':
+    if args.action=='deploy':
+        print(redact(request('services/'+service_id+'/deploys','POST',{})))
+    elif args.action=='status':
         service=request('services/'+service_id)
         deploys=request('services/'+service_id+'/deploys?limit=3')
         print(redact({'id':service_id,'url':service.get('serviceDetails',{}).get('url'),'plan':service.get('serviceDetails',{}).get('plan'),'deploys':deploys}))
