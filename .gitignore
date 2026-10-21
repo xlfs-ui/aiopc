@@ -1,0 +1,17 @@
+node_modules/
+.env
+.env.*
+!.env.example
+dist/
+frontend/node_modules/
+frontend/dist/
+frontend/*.tsbuildinfo
+backend/.venv/
+backend/**/__pycache__/
+*.pyc
+backend/data/*.db*
+*.pem
+*.key
+*.p12
+*.zip
+deploy-private/

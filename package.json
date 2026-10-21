@@ -1,0 +1,20 @@
+{
+  "name": "neighborhood-agent",
+  "private": true,
+  "version": "0.1.0",
+  "packageManager": "pnpm@11.25.0",
+  "scripts": {
+    "deps:install": "pnpm install && powershell -NoProfile -ExecutionPolicy Bypass -File scripts/setup.ps1",
+    "dev": "node scripts/dev.mjs",
+    "admin:create": "python backend/admin.py create-admin",
+    "account:reset": "python backend/admin.py reset-password",
+    "security:files": "python scripts/check-dev-file-exposure.py",
+    "db:backup": "python backend/database.py backup",
+    "db:migrate": "python backend/database.py migrate",
+    "db:info": "python backend/database.py info",
+    "dev:api": "python -m uvicorn app.main:app --reload --no-proxy-headers --app-dir backend --port 8000",
+    "dev:web": "pnpm --filter neighborhood-agent-web dev",
+    "build": "pnpm --filter neighborhood-agent-web build",
+    "preview": "pnpm --filter neighborhood-agent-web preview"
+  }
+}
