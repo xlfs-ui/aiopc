@@ -254,7 +254,7 @@ def chat(payload: ChatRequest,user=Depends(current_user)):
         saved=True
         try:
             from app.civic import record_consultation
-            if user['role']=='resident': record_consultation(payload.message,f'{user["id"]}:{payload.thread_id}:{lease}')
+            if user['role']=='resident': record_consultation(payload.message,str(uuid4()))
         except Exception as exc:
             logging.getLogger(__name__).warning('Consultation aggregate unavailable: %s',type(exc).__name__)
         return result

@@ -116,7 +116,8 @@ def report_markdown(data):
 
 
 @router.get('/analytics')
-def analytics(days:Literal[7,30,90]=30,demo:bool=False,user=Depends(require_admin)):
+def analytics(days:int=Query(default=30,ge=7,le=90),demo:bool=False,user=Depends(require_admin)):
+    if days not in (7,30,90): raise HTTPException(422,'统计周期只能为 7、30 或 90 天')
     enforce_rate('civic-read:'+user['id'],30,60)
     return analyze(days,demo)
 
