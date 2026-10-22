@@ -1,6 +1,7 @@
 <script setup lang="ts">
 import { computed, nextTick, onMounted, onUnmounted, ref, watch } from 'vue'
 import ResourceCards from './ResourceCards.vue'
+import { officialLink } from './officialLinks'
 import AuthPanel from './AuthPanel.vue'
 import AccountSettings from './AccountSettings.vue'
 import KnowledgeManager from './KnowledgeManager.vue'
@@ -19,10 +20,10 @@ import {
 
 type TicketStatus = '待受理' | '处理中' | '待确认' | '已完成'
 type TicketItem = { id: string; resident: string; phone: string; location: string; category: string; description: string; status: TicketStatus; assignee: string; created_at: string; updated_at: string; priority?: string }
-type Policy = { id: string; title: string; category: string; updated_at: string; summary: string; steps: string[]; source: string; phone: string }
+type Policy = { id: string; title: string; category: string; updated_at: string; summary: string; steps: string[]; source: string; source_url?: string; phone: string }
 type ActivityItem = { id: string; title: string; category: string; date: string; time: string; location: string; capacity: number; registered: number; audience: string; description: string; tag: string; is_registered?: boolean }
 type TicketDraft = { location: string; category: string; description: string; resident: string }
-type ChatMessage = { role: 'assistant' | 'user'; text: string; sources?: { title: string; updated_at: string }[]; resources?: Resource[]; trace?: string[]; draft?: TicketDraft; notice?: string }
+type ChatMessage = { role: 'assistant' | 'user'; text: string; sources?: { title: string; updated_at: string; source_url?: string }[]; resources?: Resource[]; trace?: string[]; draft?: TicketDraft; notice?: string }
 type TicketDetail = TicketItem & { events: { action: string; actor: string; created_at: string }[] }
 
 const isAdmin = computed(() => authUser.value?.role === 'admin')
@@ -45,9 +46,33 @@ const showActivityModal = ref(false)
 const ticketSaving = ref(false)
 const savingContent = ref(false)
 const newTicket = ref({ location: '', category: '公共设施', description: '', phone: '', priority: '普通' as '普通' | '较急' })
-const policyDraft = ref({ id: '', title: '', category: '便民服务', summary: '', steps: '', source: '', phone: '0571-12345', keywords: '' })
+const policyDraft = ref({ id: '', title: '', category: '便民服务', summary: '', steps: '', source: '', source_url: '', phone: '0571-12345', keywords: '' })
 const activityDraft = ref({ id: '', title: '', category: '便民活动', date: '2026-11-01', time: '09:00–10:00', location: '云水社区党群服务中心', capacity: 30, audience: '全体居民', description: '', tag: '开放报名' })
 const activePolicy = ref<Policy | null>(null)
+type ActivityReminder = { id: string; title: string; date: string; time: string; location: string; days_until: number; label: string }
+const activityReminders = ref<ActivityReminder[]>([])
+const reminderError = ref('')
+let reminderRequest = 0
+async function refreshReminders() {
+  const owner = authUser.value?.id
+  const request = ++reminderRequest
+  if (!owner) { activityReminders.value = []; return }
+  try {
+    const result = await api<{ items: ActivityReminder[] }>('/api/activities/reminders')
+    if (authUser.value?.id !== owner || request !== reminderRequest) return
+    activityReminders.value = result.items
+    reminderError.value = ''
+  } catch {
+    if (authUser.value?.id === owner && request === reminderRequest) {
+      activityReminders.value = []
+      reminderError.value = '活动提醒暂未更新，可前往社区活动查看报名安排。'
+    }
+  }
+}
+function refreshVisibleReminders() {
+  if (document.visibilityState === 'visible' && authUser.value) void refreshReminders()
+}
+let reminderTimer: ReturnType<typeof setInterval> | undefined
 const chatInput = ref('')
 const chatBusy = ref(false)
 const chatThreadId = ref<string>(crypto.randomUUID())
@@ -108,6 +133,7 @@ async function refreshData() {
   if (!authUser.value) return
   const owner = authUser.value.id
   const requestedMode = mode.value
+  void refreshReminders()
   loading.value = true
   errorMessage.value = ''
   try {
@@ -280,6 +306,7 @@ watch(() => authUser.value?.id, async userId => {
   discoveryController?.abort()
   accountOpen.value = false; discoveryOpen.value = false; showTicketModal.value = false
   showPolicyModal.value = false; showActivityModal.value = false; activePolicy.value = null; activeTicket.value = null; activeDocument.value = null
+  activityReminders.value = []; reminderError.value = ''; ++reminderRequest
   tickets.value = []; policies.value = []; activities.value = []; discoveryResults.value = []
   mode.value = 'resident'; residentPage.value = 'home'; ticketFilter.value = '全部'; search.value = ''
   newTicket.value = { location: '', category: '公共设施', description: '', phone: '', priority: '普通' }
@@ -329,8 +356,8 @@ async function submitTicket() {
 
 function openPolicyEditor(policy?: Policy) {
   policyDraft.value = policy
-    ? { id: policy.id, title: policy.title, category: policy.category, summary: policy.summary, steps: policy.steps.join('\n'), source: policy.source, phone: policy.phone, keywords: `${policy.title} ${policy.category}` }
-    : { id: '', title: '', category: '便民服务', summary: '', steps: '', source: '', phone: '0571-12345', keywords: '' }
+    ? { id: policy.id, title: policy.title, category: policy.category, summary: policy.summary, steps: policy.steps.join('\n'), source: policy.source, source_url: policy.source_url || '', phone: policy.phone, keywords: `${policy.title} ${policy.category}` }
+    : { id: '', title: '', category: '便民服务', summary: '', steps: '', source: '', source_url: '', phone: '0571-12345', keywords: '' }
   showPolicyModal.value = true
 }
 
@@ -391,6 +418,7 @@ async function registerActivity(activity: ActivityItem) {
 }
 
 function handlePageRestore(event: PageTransitionEvent) {
+  if (!event.persisted) refreshVisibleReminders()
   if (event.persisted) { authReady.value = false; clearSession('', false); void bootstrapAuth() }
 }
 let stopInterfaceMotion: (() => void) | undefined
@@ -400,10 +428,12 @@ onMounted(() => {
   try { localStorage.removeItem('community-chat-v2') } catch { /* Clear legacy unscoped chat storage. */ }
   window.addEventListener('keydown', handleShortcut)
   window.addEventListener('pageshow', handlePageRestore)
+  document.addEventListener('visibilitychange', refreshVisibleReminders)
+  reminderTimer = setInterval(refreshVisibleReminders, 60000)
   void bootstrapAuth()
   void api<{ mode: string }>('/api/health').then(h => { agentMode.value = h.mode }).catch(() => { agentMode.value = 'offline' })
 })
-onUnmounted(() => { window.removeEventListener('keydown', handleShortcut); window.removeEventListener('pageshow', handlePageRestore); clearTimeout(searchTimer); discoveryController?.abort(); if (hadDialog) document.body.style.overflow = originalOverflow })
+onUnmounted(() => { clearInterval(reminderTimer); document.removeEventListener('visibilitychange', refreshVisibleReminders); window.removeEventListener('keydown', handleShortcut); window.removeEventListener('pageshow', handlePageRestore); clearTimeout(searchTimer); discoveryController?.abort(); if (hadDialog) document.body.style.overflow = originalOverflow })
 </script>
 
 <template>
@@ -463,6 +493,11 @@ onUnmounted(() => { window.removeEventListener('keydown', handleShortcut); windo
       <div v-if="errorMessage" class="toast" :class="{ 'toast-error': !errorMessage.includes('成功') }"><Check :size="15" />{{ errorMessage }}<button @click="errorMessage = ''"><X :size="14" /></button></div>
 
       <div :key="`${mode}-${mode === 'resident' ? residentPage : consolePage}`" class="page-content">
+        <section v-if="activityReminders.length" class="activity-reminders" aria-labelledby="activity-reminder-heading">
+          <div class="reminder-heading"><Bell :size="22" /><div><h2 id="activity-reminder-heading">别忘了，你报名的活动快开始了</h2><p>每次打开平台，为你更新活动安排 · 北京时间</p></div></div>
+          <div class="reminder-grid"><article v-for="item in activityReminders" :key="item.id" class="reminder-item"><span class="reminder-countdown">{{ item.label }}</span><h3>{{ item.title }}</h3><p><CalendarDays :size="16" />{{ item.date }} · {{ item.time }}</p><p><MapPin :size="16" />{{ item.location }}</p><button class="text-link" @click="goResident('activities')">查看活动安排 <ArrowRight :size="16" /></button></article></div>
+        </section>
+        <div v-if="reminderError" class="reminder-error" role="status">{{ reminderError }} <button class="text-link" @click="refreshReminders">重试</button></div>
         <template v-if="mode === 'resident' && residentPage === 'home'">
           <section class="welcome-row">
             <div><div class="eyebrow"><span class="live-dot"></span>YOUR COMMUNITY, CONNECTED</div><h1>你好，{{ authUser.display_name }} <span class="wave">✳</span></h1><p>从一个问题出发，找到资料、办理流程和下一步。</p></div>
@@ -486,7 +521,7 @@ onUnmounted(() => { window.removeEventListener('keydown', handleShortcut); windo
                     <ResourceCards v-if="message.resources?.length" :items="message.resources.slice(0, 3)" @open="openResource" />
                     <button v-if="message.resources && message.resources.length > 3" class="more-results" @click="openDiscovery()">检索更多服务与内容 <ArrowRight :size="13" /></button>
                     <button v-if="message.draft" class="button button-primary draft-confirm" @click="openDraft(message.draft)"><ClipboardList :size="15" />核对并提交报修</button>
-                    <div v-if="message.sources?.length" class="source-chips"><span v-for="source in message.sources" :key="source.title"><ShieldCheck :size="12" />{{ source.title }} · {{ source.updated_at }}</span></div>
+                    <div v-if="message.sources?.length" class="source-chips"><span v-for="source in message.sources" :key="source.title"><ShieldCheck :size="12" />{{ source.title }} · {{ source.updated_at }}<a v-if="officialLink(source.source_url)" :href="officialLink(source.source_url)" target="_blank" rel="noopener noreferrer">官方原文 ↗</a></span></div>
                     <div class="message-time">{{ message.role === 'assistant' ? '邻里助手' : '刚刚' }} <CheckCheck v-if="message.role === 'user'" :size="13" /></div>
                   </div>
                   <div v-if="message.role === 'user'" class="user-chat-avatar">{{ authUser.display_name.slice(0, 1) }}</div>
@@ -530,7 +565,7 @@ onUnmounted(() => { window.removeEventListener('keydown', handleShortcut); windo
 
         <template v-else-if="mode === 'resident' && residentPage === 'policies'">
           <section class="page-intro"><div><div class="eyebrow">本地政策 · 办事指南</div><h1>政策查询</h1><p>按需查找社区常见政策与办事指引</p></div><label class="search-box large-search"><Search :size="17" /><input v-model="search" placeholder="试试搜索“居住证”“养老补贴”…" /></label></section>
-          <div class="policy-layout"><section class="policy-list"><button v-for="policy in policies.filter(p => !search || `${p.title}${p.category}${p.summary}`.includes(search))" :key="policy.id" class="policy-card panel" @click="activePolicy = policy"><div class="policy-topline"><span class="policy-category">{{ policy.category }}</span><span class="policy-updated">更新于 {{ policy.updated_at }}</span></div><h2>{{ policy.title }}<ArrowRight :size="17" /></h2><p>{{ policy.summary }}</p><div class="policy-source"><ShieldCheck :size="14" />{{ policy.source }}</div></button></section><aside class="policy-aside panel"><div class="policy-aside-icon"><CircleHelp :size="21" /></div><h3>没有找到想了解的政策？</h3><p>你可以通过邻里助手描述具体问题，我们会优先从本地政策资料中检索。</p><button class="button button-dark" @click="goResident('home')"><MessageCircle :size="16" />咨询邻里助手</button><div class="policy-hotline"><PhoneIcon />社区服务热线<strong>0571-12345</strong></div></aside></div>
+          <div class="policy-layout"><section class="policy-list"><article v-for="policy in policies.filter(p => !search || `${p.title}${p.category}${p.summary}`.includes(search))" :key="policy.id" class="policy-card panel"><div class="policy-topline"><span class="policy-category">{{ policy.category }}</span><span class="policy-updated">更新于 {{ policy.updated_at }}</span></div><h2><button class="policy-title-button" @click="activePolicy = policy">{{ policy.title }}<ArrowRight :size="17" /></button></h2><p>{{ policy.summary }}</p><div class="policy-source"><ShieldCheck :size="14" />{{ policy.source }}</div><a v-if="officialLink(policy.source_url)" class="official-policy-link" :href="officialLink(policy.source_url)" target="_blank" rel="noopener noreferrer" referrerpolicy="no-referrer">查看官方原文 <ArrowUpRight :size="16" /></a><span v-else class="policy-reference-note">演示资料或待补充官方原文</span></article></section><aside class="policy-aside panel"><div class="policy-aside-icon"><CircleHelp :size="21" /></div><h3>没有找到想了解的政策？</h3><p>你可以通过邻里助手描述具体问题，我们会优先从本地政策资料中检索。</p><button class="button button-dark" @click="goResident('home')"><MessageCircle :size="16" />咨询邻里助手</button><div class="policy-hotline"><PhoneIcon />社区服务热线<strong>0571-12345</strong></div></aside></div>
         </template>
 
         <template v-else-if="mode === 'resident' && residentPage === 'activities'">
@@ -575,9 +610,9 @@ onUnmounted(() => { window.removeEventListener('keydown', handleShortcut); windo
 
     <div v-if="showTicketModal" class="modal-backdrop" @click.self="showTicketModal = false"><form class="ticket-modal" @submit.prevent="submitTicket"><div class="modal-header"><div><span class="modal-kicker">居民服务 · 核对并提交</span><h2>提交报事报修</h2></div><button type="button" class="icon-button" aria-label="关闭" @click="showTicketModal = false"><X :size="19" /></button></div><p class="modal-desc">核对位置与问题，点击提交后才会生成正式工单。</p><label>问题位置 <span>*</span><input v-model="newTicket.location" required minlength="2" maxlength="100" placeholder="例如：3幢2单元5楼" /></label><label>问题类型<select v-model="newTicket.category"><option>公共设施</option><option>公共照明</option><option>道路设施</option><option>给排水</option><option>环境卫生</option><option>噪音问题</option><option>其他诉求</option></select></label><label>问题描述 <span>*</span><textarea v-model="newTicket.description" required minlength="3" maxlength="500" rows="4" placeholder="请描述遇到的问题，便于工作人员处理"></textarea></label><div class="modal-row"><label>联系人<input :value="authUser.display_name" readonly aria-label="当前账号称呼" /></label><label>联系电话<input v-model="newTicket.phone" maxlength="30" placeholder="联系电话，可选填" /></label></div><label class="priority-toggle"><input v-model="newTicket.priority" type="checkbox" true-value="较急" false-value="普通" /><span class="fake-check"><Check :size="13" /></span>情况较急，需要优先处理</label><div class="modal-actions"><button type="button" class="button button-white" @click="showTicketModal = false">取消</button><button class="button button-primary" :disabled="ticketSaving"><Send :size="15" />{{ ticketSaving ? '提交中…' : '提交工单' }}</button></div></form></div>
 
-    <div v-if="activePolicy" class="modal-backdrop" @click.self="activePolicy = null"><article class="policy-modal"><div class="modal-header"><div><span class="policy-category">{{ activePolicy.category }}</span><h2>{{ activePolicy.title }}</h2></div><button class="icon-button" @click="activePolicy = null"><X :size="19" /></button></div><p class="policy-summary">{{ activePolicy.summary }}</p><h3>办理建议</h3><ol><li v-for="step in activePolicy.steps" :key="step">{{ step }}</li></ol><div class="policy-citation"><ShieldCheck :size="16" /><div><strong>{{ activePolicy.source }}</strong><span>资料更新于 {{ activePolicy.updated_at }} · 信息仅供办事参考</span></div></div><div class="policy-contact"><span>咨询电话</span><strong>{{ activePolicy.phone }}</strong></div><button class="button button-primary modal-done" @click="activePolicy = null">我知道了 <Check :size="16" /></button></article></div>
+    <div v-if="activePolicy" class="modal-backdrop" @click.self="activePolicy = null"><article class="policy-modal"><div class="modal-header"><div><span class="policy-category">{{ activePolicy.category }}</span><h2>{{ activePolicy.title }}</h2></div><button class="icon-button" @click="activePolicy = null"><X :size="19" /></button></div><p class="policy-summary">{{ activePolicy.summary }}</p><h3>办理建议</h3><ol><li v-for="step in activePolicy.steps" :key="step">{{ step }}</li></ol><div class="policy-citation"><ShieldCheck :size="16" /><div><strong>{{ activePolicy.source }}</strong><a v-if="officialLink(activePolicy.source_url)" class="official-policy-link" :href="officialLink(activePolicy.source_url)" target="_blank" rel="noopener noreferrer" referrerpolicy="no-referrer">打开官方原文 / 办事指南 <ArrowUpRight :size="16" /></a><span v-else>演示资料或待补充官方原文，请咨询主管部门核实。</span><span>资料更新于 {{ activePolicy.updated_at }} · 信息仅供办事参考</span></div></div><div class="policy-contact"><span>咨询电话</span><strong>{{ activePolicy.phone }}</strong></div><button class="button button-primary modal-done" @click="activePolicy = null">我知道了 <Check :size="16" /></button></article></div>
 
-    <div v-if="showPolicyModal" class="modal-backdrop" @click.self="showPolicyModal = false"><form class="ticket-modal" @submit.prevent="submitPolicy"><div class="modal-header"><div><span class="modal-kicker">知识运营 · {{ policyDraft.id ? '编辑资料' : '新增资料' }}</span><h2>{{ policyDraft.id ? '编辑政策资料' : '新增政策资料' }}</h2></div><button type="button" class="icon-button" @click="showPolicyModal = false"><X :size="19" /></button></div><label>政策名称 <span>*</span><input v-model="policyDraft.title" required minlength="2" placeholder="例如：居住证办理指南" /></label><div class="modal-row"><label>政策类别<input v-model="policyDraft.category" required /></label><label>咨询电话<input v-model="policyDraft.phone" /></label></div><label>内容摘要 <span>*</span><textarea v-model="policyDraft.summary" required minlength="5" rows="3" placeholder="用清晰简明的语言说明适用情况"></textarea></label><label>办理步骤 <small>每行一条</small><textarea v-model="policyDraft.steps" rows="3" placeholder="准备所需材料&#10;向社区服务窗口提交申请"></textarea></label><label>资料来源 <span>*</span><input v-model="policyDraft.source" required minlength="2" placeholder="主管部门及资料标题" /></label><label>检索关键词<input v-model="policyDraft.keywords" placeholder="用空格或逗号分隔，如：养老 津贴 补贴" /></label><div class="modal-actions"><button type="button" class="button button-white" @click="showPolicyModal = false">取消</button><button class="button button-primary" :disabled="savingContent"><Check :size="15" />{{ savingContent ? '保存中…' : '保存并发布' }}</button></div></form></div>
+    <div v-if="showPolicyModal" class="modal-backdrop" @click.self="showPolicyModal = false"><form class="ticket-modal" @submit.prevent="submitPolicy"><div class="modal-header"><div><span class="modal-kicker">知识运营 · {{ policyDraft.id ? '编辑资料' : '新增资料' }}</span><h2>{{ policyDraft.id ? '编辑政策资料' : '新增政策资料' }}</h2></div><button type="button" class="icon-button" @click="showPolicyModal = false"><X :size="19" /></button></div><label>政策名称 <span>*</span><input v-model="policyDraft.title" required minlength="2" placeholder="例如：居住证办理指南" /></label><div class="modal-row"><label>政策类别<input v-model="policyDraft.category" required /></label><label>咨询电话<input v-model="policyDraft.phone" /></label></div><label>内容摘要 <span>*</span><textarea v-model="policyDraft.summary" required minlength="5" rows="3" placeholder="用清晰简明的语言说明适用情况"></textarea></label><label>办理步骤 <small>每行一条</small><textarea v-model="policyDraft.steps" rows="3" placeholder="准备所需材料&#10;向社区服务窗口提交申请"></textarea></label><label>资料来源 <span>*</span><input v-model="policyDraft.source" required minlength="2" placeholder="主管部门及资料标题" /></label><label>官方原文链接<input v-model="policyDraft.source_url" type="url" maxlength="1000" placeholder="https://政府官网.gov.cn/政策原文" /><small>填写对应事项的政府官网链接；演示指引可留空。分类办理指南请在来源中写明地区及适用范围。</small></label><label>检索关键词<input v-model="policyDraft.keywords" placeholder="用空格或逗号分隔，如：养老 津贴 补贴" /></label><div class="modal-actions"><button type="button" class="button button-white" @click="showPolicyModal = false">取消</button><button class="button button-primary" :disabled="savingContent"><Check :size="15" />{{ savingContent ? '保存中…' : '保存并发布' }}</button></div></form></div>
 
     <div v-if="showActivityModal" class="modal-backdrop" @click.self="showActivityModal = false"><form class="ticket-modal" @submit.prevent="submitActivity"><div class="modal-header"><div><span class="modal-kicker">社区运营 · 活动管理</span><h2>{{ activityDraft.id ? '编辑社区活动' : '新建社区活动' }}</h2></div><button type="button" class="icon-button" @click="showActivityModal = false"><X :size="19" /></button></div><label>活动名称 <span>*</span><input v-model="activityDraft.title" required minlength="2" placeholder="填写活动名称" /></label><div class="modal-row"><label>活动类型<input v-model="activityDraft.category" required /></label><label>面向人群<input v-model="activityDraft.audience" required /></label></div><div class="modal-row"><label>活动日期<input v-model="activityDraft.date" type="date" required /></label><label>活动时间<input v-model="activityDraft.time" required placeholder="例如：09:00–10:00" /></label></div><label>活动地点<input v-model="activityDraft.location" required /></label><label>活动说明<textarea v-model="activityDraft.description" required minlength="5" rows="3" placeholder="介绍活动内容与参与方式"></textarea></label><div class="modal-row"><label>报名名额<input v-model.number="activityDraft.capacity" type="number" min="1" required /></label><label>展示标签<input v-model="activityDraft.tag" /></label></div><div class="modal-actions"><button type="button" class="button button-white" @click="showActivityModal = false">取消</button><button class="button button-primary" :disabled="savingContent"><CalendarDays :size="15" />{{ savingContent ? '保存中…' : activityDraft.id ? '保存修改' : '发布活动' }}</button></div></form></div>
   </div>

@@ -22,3 +22,23 @@ body{font-size:1rem;line-height:1.6;background:radial-gradient(ellipse at 82% 8%
 .nav-item>svg{flex-shrink:0}.nav-item>span{line-height:1.5}.civic-hero-tags span,.auth-benefits span{line-height:1.7}
 
 .username-format-hint{font-size:.8rem;color:#526f7d;line-height:1.8;margin:7px 0 0}
+.activity-reminders { margin-bottom: 26px; padding: 24px; border: 1px solid #a4d7ce; border-radius: 22px; background: linear-gradient(120deg, #e4f5ec, #eef5ff 72%, #fff4dc); box-shadow: 0 12px 32px #195e4910; animation: reminder-enter .45s ease both; }
+.reminder-heading { display: flex; gap: 13px; align-items: center; color: #14584c; margin-bottom: 18px; }
+.reminder-heading h2 { font-size: 1.08rem; margin: 0 0 5px; }
+.reminder-heading p { margin: 0; font-size: .84rem; color: #48695e; }
+.reminder-grid { display: grid; grid-template-columns: repeat(auto-fit, minmax(min(100%, 270px), 1fr)); gap: 14px; }
+.reminder-item { min-width: 0; background: #ffffffde; border: 1px solid #c5dfd8; padding: 18px; border-radius: 16px; }
+.reminder-item h3 { margin: 12px 0; font-size: 1rem; color: #183f38; }
+.reminder-item p { display: flex; gap: 7px; align-items: flex-start; margin: 9px 0; font-size: .86rem; color: #486064; overflow-wrap: anywhere; }
+.reminder-item p svg { flex-shrink: 0; margin-top: 3px; }
+.reminder-countdown { display: inline-block; padding: 7px 13px; border-radius: 10px; background: #fff0cd; color: #784b03; font-weight: 750; font-size: .94rem; }
+.reminder-error { margin-bottom: 18px; padding: 12px 18px; border-radius: 12px; background: #fff4df; color: #725019; }
+.official-policy-link { display: inline-flex; align-items: center; gap: 6px; color: #14645b; font-size: .9rem; font-weight: 700; padding: 10px 0; text-decoration: underline; text-underline-offset: 4px; overflow-wrap: anywhere; }
+.official-policy-link:hover { color: #195ca2; }
+.policy-title-button { display: flex; align-items: center; justify-content: space-between; gap: 12px; background: transparent; border: 0; padding: 0; color: inherit; font: inherit; font-weight: inherit; text-align: left; width: 100%; cursor: pointer; }
+.policy-reference-note { display: block; margin-top: 12px; color: #586b71; font-size: .82rem; }
+.source-chips a { margin-left: 8px; color: #14645b; text-decoration: underline; }
+@keyframes reminder-enter { from { opacity: 0; transform: translateY(9px); } to { opacity: 1; transform: translateY(0); } }
+@media (prefers-reduced-motion: reduce) { .activity-reminders { animation: none; } }
+html[data-motion="reduced"] .activity-reminders { animation: none; }
+@media (max-width: 600px) { .activity-reminders { padding: 17px; } }

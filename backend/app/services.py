@@ -36,7 +36,7 @@ def search_resources(query: str, resident: str) -> list[dict]:
     other_intent = any(word in query for word in ("活动", "报名", "义诊", "亲子", "工单", "进度", "报修", "维修"))
     for p in POLICIES:
         if query.strip() and p['id'] not in retrieval_order: continue
-        candidates.append({"id": p["id"], "kind": "policy", "title": p["title"], "description": p["summary"], "steps": p["steps"], "source": p["source"], "updated_at": p["updated_at"], "keywords": " ".join(p["keywords"]), "action": {"type": "view_policy", "label": "查看完整办事指引", "resource_id": p["id"]}})
+        candidates.append({"id": p["id"], "kind": "policy", "title": p["title"], "description": p["summary"], "steps": p["steps"], "source": p["source"], "source_url": p.get("source_url", ""), "updated_at": p["updated_at"], "keywords": " ".join(p["keywords"]), "action": {"type": "view_policy", "label": "查看完整办事指引", "resource_id": p["id"]}})
     for item in retrieved:
         if item['kind']!='document': continue
         meta=item['metadata']
@@ -72,4 +72,4 @@ def local_answer(query: str, resident: str, resources: list[dict]) -> dict:
         reply = f"为你找到 {len(resources)} 项相关内容和服务。\n\n**{first['title']}**\n{first['description']}\n\n可以展开下方卡片查看办理步骤，或点击按钮进入对应服务。"
     else:
         reply = "暂未找到匹配的社区资料。你可以换个关键词，例如“居住证材料”“报修流程”或“我的工单进度”，也可以咨询社区服务窗口。"
-    return {"reply": reply, "intent": "resource_search", "sources": [{"title": r["source"], "updated_at": r["updated_at"]} for r in resources if r.get("source")], "resources": resources, "trace": ["检索社区资料", "匹配内容与办理流程", f"找到 {len(resources)} 项结果"], "mode": "local-search"}
+    return {"reply": reply, "intent": "resource_search", "sources": [{"title": r["source"], "updated_at": r["updated_at"], "source_url": r.get("source_url", "")} for r in resources if r.get("source")], "resources": resources, "trace": ["检索社区资料", "匹配内容与办理流程", f"找到 {len(resources)} 项结果"], "mode": "local-search"}

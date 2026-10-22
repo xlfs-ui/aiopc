@@ -5,7 +5,8 @@ import logging
 import re
 import time
 from collections import Counter
-from datetime import date, datetime, timedelta
+from datetime import date, datetime, timedelta, timezone
+from urllib.parse import urlsplit
 from typing import Annotated, Literal
 from uuid import uuid4
 
@@ -47,8 +48,22 @@ class PolicyPayload(Payload):
     summary: str=Field(min_length=5,max_length=1000)
     steps: list[ShortText]=Field(default_factory=list,max_length=8)
     source: str=Field(min_length=2,max_length=160)
+    source_url: str=Field(default='',max_length=1000)
     phone: str=Field(default='',max_length=30)
     keywords: list[Annotated[str,StringConstraints(strip_whitespace=True,min_length=1,max_length=40)]]=Field(default_factory=list,max_length=20)
+
+    @field_validator('source_url')
+    @classmethod
+    def official_source(cls,value):
+        if not value: return value
+        try:
+            url=urlsplit(value)
+            valid=(url.scheme=='https' and bool(url.hostname) and url.hostname.endswith('.gov.cn') and not url.username and not url.password and url.port in (None,443))
+        except ValueError:
+            valid=False
+        if not valid or any(c.isspace() or ord(c)<32 for c in value) or '\\' in value:
+            raise ValueError('官方链接须使用 HTTPS 政府官网（gov.cn）地址，不含登录凭据')
+        return value
 
 
 class ActivityPayload(Payload):
@@ -179,6 +194,31 @@ def update_ticket(ticket_id: str,payload: TicketUpdate,user=Depends(require_admi
 @router.get('/activities')
 def list_activities(user=Depends(current_user)):
     return activity_views(storage.read_data(tables=('activities','registrations')),user['id'])
+
+
+@router.get('/activities/reminders')
+def activity_reminders(user=Depends(current_user)):
+    now=datetime.now(timezone(timedelta(hours=8)))
+    data=storage.read_data(tables=('activities','registrations'))
+    owned={r['activity_id'] for r in data['registrations'] if r.get('owner_id')==user['id']}
+    reminders=[]
+    for activity in data['activities']:
+        if activity['id'] not in owned: continue
+        try: day=date.fromisoformat(activity['date'])
+        except ValueError: continue
+        days=(day-now.date()).days
+        if days<0: continue
+        times=re.findall(r'(?<!\d)([01]?\d|2[0-3]):([0-5]\d)(?!\d)',activity['time'])
+        label='明天开始' if days==1 else f'还有 {days} 天开始' if days>1 else '今天开始'
+        if days==0 and times:
+            start=now.replace(hour=int(times[0][0]),minute=int(times[0][1]),second=0,microsecond=0)
+            if len(times)>1:
+                end=now.replace(hour=int(times[1][0]),minute=int(times[1][1]),second=0,microsecond=0)
+                if end<start: end+=timedelta(days=1)
+                if now>=end: continue
+            if now>=start: label='今天已开始，请留意活动安排'
+        reminders.append({k:activity[k] for k in ('id','title','date','time','location')} | {'days_until':days,'label':label})
+    return {'items':sorted(reminders,key=lambda a:(a['date'],a['time'],a['id'])),'as_of':now.isoformat(timespec='seconds'),'timezone':'Asia/Shanghai'}
 
 
 @router.post('/activities',status_code=201)

@@ -230,7 +230,7 @@ def run_agent(message: str, resident: str, thread_id: str, user_id: str, history
         elif kind == "policy_search":
             intent = "policy"
             policy_items = data.get("items", [])
-            sources = [{"title": p["source"], "updated_at": p["updated_at"]} for p in data.get("items", [])]
+            sources = [{"title": p["source"], "updated_at": p["updated_at"], "source_url": p.get("source_url", "")} for p in data.get("items", [])]
         elif kind == "activities":
             intent = "activity"
         elif kind == "ticket_status":

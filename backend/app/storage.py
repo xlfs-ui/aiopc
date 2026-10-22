@@ -17,7 +17,7 @@ _lock = RLock()
 _initialized = set()
 # SQL identifiers below are fixed application constants, never request input.
 BUSINESS = {
-    'policies': {'id':'TEXT PRIMARY KEY','title':'TEXT NOT NULL','category':'TEXT NOT NULL','summary':'TEXT NOT NULL','steps':'TEXT NOT NULL','source':'TEXT NOT NULL','phone':'TEXT NOT NULL DEFAULT \'\'','keywords':'TEXT NOT NULL','updated_at':'TEXT NOT NULL'},
+    'policies': {'id':'TEXT PRIMARY KEY','title':'TEXT NOT NULL','category':'TEXT NOT NULL','summary':'TEXT NOT NULL','steps':'TEXT NOT NULL','source':'TEXT NOT NULL','source_url':"TEXT NOT NULL DEFAULT ''",'phone':'TEXT NOT NULL DEFAULT \'\'','keywords':'TEXT NOT NULL','updated_at':'TEXT NOT NULL'},
     'activities': {'id':'TEXT PRIMARY KEY','title':'TEXT NOT NULL','category':'TEXT NOT NULL','date':'TEXT NOT NULL','time':'TEXT NOT NULL','location':'TEXT NOT NULL','capacity':'INTEGER NOT NULL','registered':'INTEGER NOT NULL DEFAULT 0','audience':'TEXT NOT NULL','description':'TEXT NOT NULL','tag':'TEXT NOT NULL'},
     'tickets': {'id':'TEXT PRIMARY KEY','owner_id':'TEXT','resident':'TEXT NOT NULL','phone':'TEXT NOT NULL DEFAULT \'\'','location':'TEXT NOT NULL','category':'TEXT NOT NULL','description':'TEXT NOT NULL','status':'TEXT NOT NULL','assignee':'TEXT NOT NULL','created_at':'TEXT NOT NULL','updated_at':'TEXT NOT NULL','priority':'TEXT NOT NULL DEFAULT \'普通\''},
     'registrations': {'id':'TEXT PRIMARY KEY','activity_id':'TEXT NOT NULL REFERENCES activities(id)','owner_id':'TEXT','resident':'TEXT NOT NULL','created_at':'TEXT NOT NULL'},
@@ -80,7 +80,7 @@ def _initialize(db):
     with _lock:
         if path in _initialized: return
         version=db.execute('PRAGMA user_version').fetchone()[0]
-        if version>3: raise RuntimeError('Database schema is newer than this application')
+        if version>4: raise RuntimeError('Database schema is newer than this application')
         if version<2 and db.execute("SELECT 1 FROM sqlite_master WHERE name='snapshots'").fetchone():
             backup=DB_PATH.with_name(DB_PATH.stem+'.pre-v2.'+datetime.now().strftime('%Y%m%d%H%M%S%f')+'.db')
             destination=sqlite3.connect(backup)
@@ -111,6 +111,10 @@ def _initialize(db):
                 from app.civic import SCHEMA as civic_schema
                 for statement in civic_schema: db.execute(statement)
                 db.execute('PRAGMA user_version=3')
+            if version<4:
+                if 'source_url' not in {row[1] for row in db.execute('PRAGMA table_info(policies)')}:
+                    db.execute("ALTER TABLE policies ADD COLUMN source_url TEXT NOT NULL DEFAULT ''")
+                db.execute('PRAGMA user_version=4')
             db.commit()
             _initialized.add(path)
         except Exception:

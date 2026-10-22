@@ -64,6 +64,8 @@ REGISTRATIONS: list[dict] = [
 
 COLLECTIONS={'policies':POLICIES,'activities':ACTIVITIES,'tickets':TICKETS,'registrations':REGISTRATIONS}
 storage.load_or_seed(COLLECTIONS)
+from app.policy_sources import attach_default_references
+attach_default_references()
 if config.PRODUCTION:
     from app.bootstrap import bootstrap_admin
     bootstrap_admin()
