@@ -67,6 +67,8 @@ storage.load_or_seed(COLLECTIONS)
 if config.PRODUCTION:
     from app.bootstrap import bootstrap_admin
     bootstrap_admin()
+from app.demo_seed import seed_if_requested
+seed_if_requested()
 
 app=FastAPI(title="邻里智服 Agent API",version="0.2.0",docs_url=None if config.PRODUCTION else '/docs',redoc_url=None if config.PRODUCTION else '/redoc',openapi_url=None if config.PRODUCTION else '/openapi.json')
 app.add_middleware(SecurityMiddleware)

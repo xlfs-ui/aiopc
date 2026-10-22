@@ -8,8 +8,14 @@ from app import storage
 
 def main():
     parser=argparse.ArgumentParser(description='SQLite backup and migration')
-    parser.add_argument('action',choices=['backup','migrate','info'])
+    parser.add_argument('action',choices=['backup','migrate','info','seed-demo'])
     args=parser.parse_args()
+    if args.action=='seed-demo':
+        from app import main as application
+        from app.demo_seed import seed_demo
+        result=seed_demo()
+        print(json.dumps({'batch':result['batch'],'counts':result['counts'],'reports':result['reports']},ensure_ascii=True,indent=2))
+        return
     if storage.is_postgres():
         if args.action=='backup': parser.error('Cloud Postgres backups require Neon snapshots or pg_dump; this command only backs up local SQLite')
         if args.action=='migrate':

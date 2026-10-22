@@ -64,7 +64,7 @@ def create():
 
 def main():
     parser=argparse.ArgumentParser()
-    parser.add_argument('action',choices=['create','status','logs','deploy','remove-bootstrap'])
+    parser.add_argument('action',choices=['create','status','logs','deploy','seed-demo','remove-demo-seed','remove-bootstrap'])
     args=parser.parse_args()
     PRIVATE.mkdir(exist_ok=True)
     state_path=PRIVATE/'render-state.json'
@@ -76,7 +76,14 @@ def main():
         return
     state=json.loads(state_path.read_text(encoding='utf-8'))
     service_id=state['service']['id']
-    if args.action=='deploy':
+    if args.action=='seed-demo':
+        request('services/'+service_id+'/env-vars/DEMO_SEED_BATCH','PUT',{'value':'community-demo-v1'})
+        print('One-time sample batch enabled. Existing data will be retained.')
+        print(redact(request('services/'+service_id+'/deploys','POST',{})))
+    elif args.action=='remove-demo-seed':
+        request('services/'+service_id+'/env-vars/DEMO_SEED_BATCH','DELETE')
+        print('Sample seed startup setting removed. Database samples retained.')
+    elif args.action=='deploy':
         print(redact(request('services/'+service_id+'/deploys','POST',{})))
     elif args.action=='status':
         service=request('services/'+service_id)

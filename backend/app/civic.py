@@ -72,7 +72,7 @@ def analyze(days=30,demo=False):
     with storage.connection() as db:
         places=[dict(r) for r in db.execute('SELECT * FROM civic_places ORDER BY name')]
         tickets=storage._read_business(db,('tickets',))['tickets']
-        events=[dict(r) for r in db.execute('SELECT topic,occurred_at FROM civic_events WHERE occurred_at>=?',(previous.isoformat(),))]
+        events=[dict(r) for r in db.execute('SELECT id,topic,occurred_at FROM civic_events WHERE occurred_at>=?',(previous.isoformat(),))]
         people=db.execute("SELECT COUNT(*) FROM users WHERE role='resident'").fetchone()[0]
         linked=db.execute('SELECT COUNT(*) FROM civic_resident_links').fetchone()[0]
         published=db.execute("SELECT COUNT(*) FROM documents WHERE status='published'").fetchone()[0]
@@ -90,6 +90,8 @@ def analyze(days=30,demo=False):
     areas=Counter(area_of(t['location'],places) for t in current)
     series=[{'date':(start+timedelta(days=i)).isoformat(),'tickets':sum(day_of(t['created_at'])==start+timedelta(days=i) for t in current),'consultations':sum(day_of(e['occurred_at'])==start+timedelta(days=i) for e in queries)} for i in range(days)]
     pending=sum(t['status']!='已完成' for t in current)
+    sample_tickets=sum(t['id'].upper().startswith('DEMO-') for t in current)
+    sample_consultations=sum(e.get('id','').startswith('demo-') for e in queries)
     suggestions=[]
     actions={'公共照明':'按区域核查灯具和供电情况，合并安排巡检。','停车管理':'现场确认高峰时段与通行影响，再协调物业调整停车引导。','虫害防治':'核查积水和垃圾点位，再安排清洁及专业消杀。','邻里噪音':'核实发生时段与具体情形，优先开展沟通协调。','给排水':'排查漏水或积水原因，评估是否需要专业维修。'}
     for t in topics[:4]:
@@ -100,12 +102,13 @@ def analyze(days=30,demo=False):
             'metrics':{'consultations':len(queries),'tickets':len(current),'previous_tickets':len(old),'pending':pending,'completion_rate':round((len(current)-pending)/len(current)*100) if current else 0,'areas':len(areas)},
             'daily':series,'consultation_topics':[{'name':k,'count':v} for k,v in Counter(e['topic'] for e in queries).most_common(12)],'topics':topics,'areas':[{'name':k,'count':v,'pending':sum(area_of(t['location'],places)==k and t['status']!='已完成' for t in current)} for k,v in areas.most_common(12)],'suggestions':suggestions,
             'ledger':{'residents':people,'places':len(places),'households':sum(p['households'] for p in places),'linked_residents':linked,'published_documents':published},
-            'quality':{'undated_tickets':invalid,'unassigned_tickets':areas.get('其他 / 未归属区域',0),'notes':['咨询为本功能上线后完成对话的次数，不等于独立人数；分类使用可解释关键词规则。','环比比较此前相同天数；两期合计不足 5 件时提示样本不足，不据此判定社会矛盾升级。','区域按地点底册名称或楼栋文字归并，未匹配记录单列；非标准日期不纳入趋势。','建议为统计辅助，不代表原因认定或自动派单；需工作人员核实。']}}
+            'quality':{'sample_tickets':sample_tickets,'sample_consultations':sample_consultations,'undated_tickets':invalid,'unassigned_tickets':areas.get('其他 / 未归属区域',0),'notes':(['本期含虚构演示工单与咨询分类，不代表实际民情，不可用于真实资源调度。'] if sample_tickets or sample_consultations else [])+['咨询为本功能上线后完成对话的次数，不等于独立人数；分类使用可解释关键词规则；演示样本另行标注。','环比比较此前相同天数；两期合计不足 5 件时提示样本不足，不据此判定社会矛盾升级。','区域按地点底册名称或楼栋文字归并，未匹配记录单列；非标准日期不纳入趋势。','建议为统计辅助，不代表原因认定或自动派单；需工作人员核实。']}}
 
 
 def report_markdown(data):
     m=data['metrics']
-    lines=['# 社区民情需求分析报告',f"统计周期：{data['start']} 至 {data['end']}（北京时间）",'数据模式：'+('演示数据，不用于实际调度' if data['demo'] else '真实业务数据'),f"咨询 {m['consultations']} 次；诉求 {m['tickets']} 件；待完成 {m['pending']} 件；完成率 {m['completion_rate']}%。",'## 热门咨询']
+    contains_samples=bool(data.get('quality',{}).get('sample_tickets') or data.get('quality',{}).get('sample_consultations'))
+    lines=['# 社区民情需求分析报告',f"统计周期：{data['start']} 至 {data['end']}（北京时间）",'数据模式：'+('演示样本，不用于实际调度' if data['demo'] or contains_samples else '数据库业务记录'),f"咨询 {m['consultations']} 次；诉求 {m['tickets']} 件；待完成 {m['pending']} 件；完成率 {m['completion_rate']}%。",'## 热门咨询']
     lines += [f"- {t['name']}：{t['count']} 次" for t in data['consultation_topics']] or ['- 暂无可统计咨询。']
     lines += ['## 诉求变化']+[f"- {t['name']}：本期 {t['count']} 件，上期 {t['previous']} 件；{t['signal']}。" for t in data['topics']]
     lines += ['## 区域分布']+[f"- {a['name']}：{a['count']} 件，其中 {a['pending']} 件未完成。" for a in data['areas']]
@@ -141,7 +144,15 @@ def create_report(payload:ReportInput,user=Depends(require_admin)):
 
 @router.get('/reports')
 def list_reports():
-    with storage.connection() as db: return [{'id':r['id'],'created_at':r['created_at'],'days':r['days']} for r in db.execute('SELECT id,created_at,days FROM civic_reports ORDER BY created_at DESC LIMIT 50')]
+    with storage.connection() as db: return [{'id':r['id'],'created_at':r['created_at'],'days':r['days'],'is_sample':r['id'].startswith('demo-')} for r in db.execute('SELECT id,created_at,days FROM civic_reports ORDER BY created_at DESC LIMIT 50')]
+
+
+@router.get('/sample-status')
+def sample_status():
+    with storage.connection() as db: row=db.execute('SELECT payload FROM snapshots WHERE id=?',(100001,)).fetchone()
+    if not row: return {'installed':False}
+    value=json.loads(row[0])
+    return {'installed':True,'batch':value['batch'],'seeded_at':value['seeded_at'],'counts':value['counts']}
 
 
 @router.get('/reports/{identifier}')
