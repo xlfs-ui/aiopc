@@ -80,7 +80,7 @@ def _initialize(db):
     with _lock:
         if path in _initialized: return
         version=db.execute('PRAGMA user_version').fetchone()[0]
-        if version>2: raise RuntimeError('Database schema is newer than this application')
+        if version>3: raise RuntimeError('Database schema is newer than this application')
         if version<2 and db.execute("SELECT 1 FROM sqlite_master WHERE name='snapshots'").fetchone():
             backup=DB_PATH.with_name(DB_PATH.stem+'.pre-v2.'+datetime.now().strftime('%Y%m%d%H%M%S%f')+'.db')
             destination=sqlite3.connect(backup)
@@ -107,6 +107,10 @@ def _initialize(db):
                     for policy in data.get('policies',[]): index_policy(db,policy)
                     db.execute("INSERT OR IGNORE INTO snapshots(id,payload) VALUES (2,'migrated-to-relational-tables')")
                 db.execute('PRAGMA user_version=2')
+            if version<3:
+                from app.civic import SCHEMA as civic_schema
+                for statement in civic_schema: db.execute(statement)
+                db.execute('PRAGMA user_version=3')
             db.commit()
             _initialized.add(path)
         except Exception:

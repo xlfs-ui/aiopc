@@ -4,5 +4,6 @@ import './style.css'
 import './experience.css'
 import './auth.css'
 import './knowledge.css'
+import './civic.css'
 
 createApp(App).mount('#app')

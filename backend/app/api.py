@@ -252,6 +252,11 @@ def chat(payload: ChatRequest,user=Depends(current_user)):
         result['trace']=['检索社区资料','匹配内容与办理流程',f"找到 {len(result['resources'])} 项结果"]
         storage.finish_chat(user['id'],payload.thread_id,lease,messages)
         saved=True
+        try:
+            from app.civic import record_consultation
+            if user['role']=='resident': record_consultation(payload.message,f'{user["id"]}:{payload.thread_id}:{lease}')
+        except Exception as exc:
+            logging.getLogger(__name__).warning('Consultation aggregate unavailable: %s',type(exc).__name__)
         return result
     finally:
         if not saved: storage.finish_chat(user['id'],payload.thread_id,lease)

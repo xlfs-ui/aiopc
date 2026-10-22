@@ -4,6 +4,7 @@ import ResourceCards from './ResourceCards.vue'
 import AuthPanel from './AuthPanel.vue'
 import AccountSettings from './AccountSettings.vue'
 import KnowledgeManager from './KnowledgeManager.vue'
+import CivicInsights from './CivicInsights.vue'
 import KnowledgeDocument from './KnowledgeDocument.vue'
 import { authUser, authReady, authRequest, bootstrapAuth, clearSession } from './auth'
 import type { Resource } from './types'
@@ -27,7 +28,7 @@ const accountOpen = ref(false)
 const ticketRequestKey = ref(crypto.randomUUID())
 const mode = ref<'resident' | 'console'>('resident')
 const residentPage = ref<'home' | 'tickets' | 'policies' | 'activities'>('home')
-const consolePage = ref<'overview' | 'tickets' | 'policies' | 'activities' | 'knowledge'>('overview')
+const consolePage = ref<'overview' | 'tickets' | 'policies' | 'activities' | 'knowledge' | 'civic'>('overview')
 const tickets = ref<TicketItem[]>([])
 const policies = ref<Policy[]>([])
 const activities = ref<ActivityItem[]>([])
@@ -78,6 +79,7 @@ const residentNav = [
 ] as const
 const consoleNav = [
   { id: 'overview', label: '工作概览', icon: Home },
+  { id: 'civic', label: '民情分析与决策', icon: Activity },
   { id: 'tickets', label: '工单处理', icon: ClipboardList },
   { id: 'policies', label: '政策知识库', icon: BookOpen },
   { id: 'knowledge', label: '文档知识库', icon: FileText },
@@ -86,7 +88,7 @@ const consoleNav = [
 
 const pageTitle = computed(() => mode.value === 'resident'
   ? ({ home: '智能服务', tickets: '我的工单', policies: '政策查询', activities: '社区活动' }[residentPage.value])
-  : ({ overview: '工作概览', tickets: '工单处理', policies: '政策知识库', activities: '活动管理', knowledge: '文档知识库' }[consolePage.value]))
+  : ({ overview: '工作概览', civic: '民情分析与辅助决策', tickets: '工单处理', policies: '政策知识库', activities: '活动管理', knowledge: '文档知识库' }[consolePage.value]))
 const filteredTickets = computed(() => {
   const q = search.value.trim().toLowerCase()
   return tickets.value.filter((t) => (ticketFilter.value === '全部' || t.status === ticketFilter.value)
@@ -553,6 +555,7 @@ onUnmounted(() => { window.removeEventListener('keydown', handleShortcut); windo
         </template>
 
         <KnowledgeManager v-else-if="mode === 'console' && consolePage === 'knowledge' && isAdmin" :key="authUser.id" />
+        <CivicInsights v-else-if="mode === 'console' && consolePage === 'civic' && isAdmin" :key="authUser.id" />
 
         <footer class="app-footer"><span>© 2026 邻里智服</span><span>让社区服务更近一步</span><span class="mock-badge"><i></i>演示业务 · 文档以审核发布为准</span></footer>
       </div>

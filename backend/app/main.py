@@ -76,6 +76,8 @@ app.include_router(auth_router)
 app.include_router(business_router)
 from app.knowledge import router as knowledge_router
 app.include_router(knowledge_router)
+from app.civic import router as civic_router
+app.include_router(civic_router)
 
 
 @app.exception_handler(RequestValidationError)
@@ -94,7 +96,7 @@ async def unexpected_error(request: Request,exc: Exception):
 @app.get('/api/health')
 def health():
     ready=bool(os.getenv('DEEPSEEK_API_KEY','').strip()) and importlib.util.find_spec('langgraph') is not None
-    return {'status':'ok','mode':'deepseek-langgraph' if ready else 'local-search','storage':'postgresql' if storage.is_postgres() else 'sqlite'}
+    return {'status':'ok','mode':'deepseek-langgraph' if ready else 'local-search','storage':'postgresql' if storage.is_postgres() else 'sqlite','features':['civic-analytics']}
 
 
 from app.web import mount_frontend

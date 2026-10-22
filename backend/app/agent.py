@@ -137,7 +137,19 @@ def register_for_activity(activity_id: str, user_id: Annotated[str, InjectedStat
         return _json({"kind": "activity_registration", "error": getattr(exc, "detail", "报名暂时失败")})
 
 
-TOOLS = [search_community_resources, search_local_policies, list_community_activities, query_my_tickets, create_repair_ticket, register_for_activity]
+@tool
+def analyze_community_needs(user_id: Annotated[str, InjectedState("user_id")], days: int = 30) -> str:
+    """Summarize community consultation trends, repair hotspots and follow-up suggestions for administrators only. Supports 7, 30, or 90 days."""
+    with storage.connection() as db:
+        row=db.execute('SELECT role FROM users WHERE id=?',(user_id,)).fetchone()
+    if not row or row['role']!='admin':
+        return _json({'kind':'civic_analysis','error':'民情统计仅供社区管理员查看。'})
+    from app.civic import analyze, report_markdown
+    data=analyze(days if days in (7,30,90) else 30)
+    return _json({'kind':'civic_analysis','report':report_markdown(data),'hint':'在管理工作台的民情分析与决策中可查看图表、维护底册并保存报告。'})
+
+
+TOOLS = [search_community_resources, search_local_policies, list_community_activities, query_my_tickets, create_repair_ticket, register_for_activity, analyze_community_needs]
 SYSTEM_PROMPT = """你是邻里智服，一个面向社区居民的中文服务助手。请准确、简洁、友善地回答。
 
 工作规则：
