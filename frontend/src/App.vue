@@ -5,6 +5,8 @@ import AuthPanel from './AuthPanel.vue'
 import AccountSettings from './AccountSettings.vue'
 import KnowledgeManager from './KnowledgeManager.vue'
 import CivicInsights from './CivicInsights.vue'
+import DisplayPreferences from './DisplayPreferences.vue'
+import { installInterfaceMotion } from './interfaceMotion'
 import KnowledgeDocument from './KnowledgeDocument.vue'
 import { authUser, authReady, authRequest, bootstrapAuth, clearSession } from './auth'
 import type { Resource } from './types'
@@ -391,6 +393,9 @@ async function registerActivity(activity: ActivityItem) {
 function handlePageRestore(event: PageTransitionEvent) {
   if (event.persisted) { authReady.value = false; clearSession('', false); void bootstrapAuth() }
 }
+let stopInterfaceMotion: (() => void) | undefined
+onMounted(() => { stopInterfaceMotion = installInterfaceMotion() })
+onUnmounted(() => { stopInterfaceMotion?.() })
 onMounted(() => {
   try { localStorage.removeItem('community-chat-v2') } catch { /* Clear legacy unscoped chat storage. */ }
   window.addEventListener('keydown', handleShortcut)
@@ -402,6 +407,7 @@ onUnmounted(() => { window.removeEventListener('keydown', handleShortcut); windo
 </script>
 
 <template>
+  <DisplayPreferences v-show="!anyDialogOpen" />
   <div v-if="!authReady" class="auth-loading"><Building2 :size="30" /><span>正在验证登录状态…</span></div>
   <AuthPanel v-else-if="!authUser" />
   <div v-else class="app-shell">
@@ -456,7 +462,7 @@ onUnmounted(() => { window.removeEventListener('keydown', handleShortcut); windo
 
       <div v-if="errorMessage" class="toast" :class="{ 'toast-error': !errorMessage.includes('成功') }"><Check :size="15" />{{ errorMessage }}<button @click="errorMessage = ''"><X :size="14" /></button></div>
 
-      <div class="page-content">
+      <div :key="`${mode}-${mode === 'resident' ? residentPage : consolePage}`" class="page-content">
         <template v-if="mode === 'resident' && residentPage === 'home'">
           <section class="welcome-row">
             <div><div class="eyebrow"><span class="live-dot"></span>YOUR COMMUNITY, CONNECTED</div><h1>你好，{{ authUser.display_name }} <span class="wave">✳</span></h1><p>从一个问题出发，找到资料、办理流程和下一步。</p></div>
