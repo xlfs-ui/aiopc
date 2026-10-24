@@ -35,7 +35,7 @@ onBeforeUnmount(() => { document.removeEventListener('pointerdown', outside); do
       <section v-if="open" id="reading-preferences" class="display-panel" aria-label="阅读与动效偏好">
         <header><div><span>为每一位邻居，清晰呈现</span><h2>阅读与显示</h2></div><button aria-label="关闭显示设置" @click="open = false"><X :size="18" /></button></header>
         <fieldset><legend><Type :size="17" />文字大小</legend><div class="reading-options"><button v-for="choice in choices" :key="choice.id" :aria-pressed="preferences.size === choice.id" :class="[choice.id, { selected: preferences.size === choice.id }]" @click="preferences.size = choice.id"><span>{{ choice.example }}</span><strong>{{ choice.label }}</strong><Check v-if="preferences.size === choice.id" :size="13" /></button></div></fieldset>
-        <label class="preference-toggle"><span><Contrast :size="18" /><span><strong>增强文字对比</strong><small>加深文字，便于长时间阅读</small></span></span><input v-model="preferences.contrast" type="checkbox" /></label>
+        <label class="preference-toggle"><span><Contrast :size="18" /><span><strong>增强文字对比</strong><small>按背景增强文字对比，清晰阅读</small></span></span><input v-model="preferences.contrast" type="checkbox" /></label>
         <label class="preference-toggle"><span><Sparkles :size="18" /><span><strong>减少动态效果</strong><small>默认同时尊重系统动态偏好</small></span></span><input v-model="preferences.reduceMotion" type="checkbox" /></label>
         <p>仅保存在当前浏览器，随时可以调整。</p>
       </section>
