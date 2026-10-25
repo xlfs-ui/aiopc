@@ -102,7 +102,7 @@ async def unexpected_error(request: Request,exc: Exception):
 @app.get('/api/health')
 def health():
     ready=bool(os.getenv('DEEPSEEK_API_KEY','').strip()) and importlib.util.find_spec('langgraph') is not None
-    return {'status':'ok','mode':'deepseek-langgraph' if ready else 'local-search','storage':'postgresql' if storage.is_postgres() else 'sqlite','features':['civic-analytics']}
+    return {'status':'ok','mode':'deepseek-langgraph' if ready else 'local-search','storage':'postgresql' if storage.is_postgres() else 'sqlite','features':['civic-analytics','work-order-workflow','account-notifications']}
 
 
 from app.web import mount_frontend

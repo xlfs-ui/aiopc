@@ -167,7 +167,7 @@ def act(ticket_id:str,payload:WorkAction,user=Depends(current_user)):
         return ticket_view(ticket,user,staff)
 
 @router.get('/notifications')
-def notifications(user=Depends(current_user)):
+def notifications(unread_only:bool=False,user=Depends(current_user)):
     from app.api import activity_reminders
     reminders=activity_reminders(user)['items']
     today=datetime.now(TZ).date().isoformat()
@@ -184,8 +184,8 @@ def notifications(user=Depends(current_user)):
         visibility="kind<>'activity'" if not reminder_keys else "(kind<>'activity' OR event_key IN ("+','.join('?' for _ in reminder_keys)+'))'
         params=(user['id'],*reminder_keys)
         counts=db.execute("SELECT COUNT(*) AS total,COALESCE(SUM(CASE WHEN read_at='' THEN 1 ELSE 0 END),0) AS unread FROM notifications WHERE recipient_id=? AND "+visibility,params).fetchone()
-        rows=[dict(r) for r in db.execute('SELECT * FROM notifications WHERE recipient_id=? AND '+visibility+' ORDER BY created_at DESC,id DESC LIMIT 100',params)]
-    return {'items':[{k:v for k,v in r.items() if k not in ('recipient_id','event_key')} for r in rows],'unread':counts['unread'],'limited':counts['total']>100}
+        rows=[dict(r) for r in db.execute('SELECT * FROM notifications WHERE recipient_id=? AND '+visibility+(" AND read_at=''" if unread_only else '')+' ORDER BY created_at DESC,id DESC LIMIT 100',params)]
+    return {'items':[{k:v for k,v in r.items() if k not in ('recipient_id','event_key')} for r in rows],'unread':counts['unread'],'limited':(counts['unread'] if unread_only else counts['total'])>100}
 
 @router.post('/notifications/read-all')
 def read_all(user=Depends(current_user)):

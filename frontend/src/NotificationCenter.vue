@@ -14,7 +14,7 @@ async function refresh() {
   if (!owner) return
   busy.value = true
   try {
-    const result = await authRequest<{ items: Notice[]; unread: number }>('/api/notifications')
+    const result = await authRequest<{ items: Notice[]; unread: number }>(unreadOnly.value ? '/api/notifications?unread_only=true' : '/api/notifications')
     if (owner !== authUser.value?.id || request !== serial) return
     items.value = result.items; unread.value = result.unread; error.value = ''
   } catch (e) { if (owner === authUser.value?.id && request === serial) error.value = e instanceof Error ? e.message : '通知暂时不可用' }
@@ -51,6 +51,7 @@ function keyboard(event: KeyboardEvent) {
 }
 function visibleRefresh() { if (document.visibilityState === 'visible') void refresh() }
 watch(() => authUser.value?.id, () => { ++serial; open.value = false; items.value = []; unread.value = 0; error.value = ''; busy.value = false; if (authUser.value) void refresh() }, { immediate: true })
+watch(unreadOnly, () => { void refresh() })
 onMounted(() => { document.addEventListener('pointerdown', outside); document.addEventListener('keydown', keyboard, true); document.addEventListener('visibilitychange', visibleRefresh); timer = setInterval(visibleRefresh, 60000) })
 onUnmounted(() => { ++serial; clearInterval(timer); document.removeEventListener('pointerdown', outside); document.removeEventListener('keydown', keyboard, true); document.removeEventListener('visibilitychange', visibleRefresh) })
 defineExpose({ refresh })
