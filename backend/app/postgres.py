@@ -58,7 +58,7 @@ def initialize(connection,url):
             connection.execute('CREATE TABLE IF NOT EXISTS schema_versions (version INTEGER PRIMARY KEY)')
             row=connection.execute('SELECT MAX(version) AS version FROM schema_versions').fetchone()
             version=row['version'] or 0
-            if version>4: raise RuntimeError('Database schema is newer than this application')
+            if version>5: raise RuntimeError('Database schema is newer than this application')
             if version<2:
                 for statement in SCHEMA:
                     if 'CREATE VIRTUAL TABLE' in statement: continue
@@ -81,6 +81,11 @@ def initialize(connection,url):
             if version<4:
                 connection.execute("ALTER TABLE policies ADD COLUMN IF NOT EXISTS source_url TEXT NOT NULL DEFAULT ''")
                 connection.execute('INSERT INTO schema_versions VALUES (4) ON CONFLICT DO NOTHING')
+            if version<5:
+                from app.operations_schema import SCHEMA as operation_schema, TICKET_COLUMNS
+                for name,definition in TICKET_COLUMNS.items():connection.execute(f'ALTER TABLE tickets ADD COLUMN IF NOT EXISTS {name} {definition}')
+                for statement in operation_schema:connection.execute(statement)
+                connection.execute('INSERT INTO schema_versions VALUES (5) ON CONFLICT DO NOTHING')
         _initialized.add(fingerprint)
 
 

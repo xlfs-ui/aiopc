@@ -112,8 +112,12 @@ class PasswordPayload(AuthModel):
         return self
 
 
-def public_user(row):
-    return {key: row[key] for key in ('id','username','display_name','role','created_at')}
+def public_user(row,db=None):
+    result={key: row[key] for key in ('id','username','display_name','role','created_at')}
+    if db is None:
+        with storage.connection() as connection:return public_user(row,connection)
+    result['is_staff']=bool(db.execute('SELECT 1 FROM service_staff WHERE user_id=? AND active=1',(row['id'],)).fetchone())
+    return result
 
 
 def get_user(user_id):
@@ -130,13 +134,14 @@ def current_user(request: Request):
         raise HTTPException(401, '请先登录')
     with storage.connection() as db:
         row = db.execute('SELECT u.*,s.csrf_token,s.token_hash FROM sessions s JOIN users u ON u.id=s.user_id WHERE s.token_hash=? AND s.expires_at>?',(digest(token),int(time.time()))).fetchone()
+        public=public_user(row,db) if row else None
     if not row:
         raise HTTPException(401, '登录已过期，请重新登录')
     if request.method not in ('GET','HEAD','OPTIONS'):
         csrf = request.headers.get('x-csrf-token','')
         if not csrf or not hmac.compare_digest(csrf.encode(),row['csrf_token'].encode()):
             raise HTTPException(403, '请求校验失败，请刷新页面后重试')
-    return {**public_user(row),'_csrf':row['csrf_token'],'_session_hash':row['token_hash']}
+    return {**public,'_csrf':row['csrf_token'],'_session_hash':row['token_hash']}
 
 
 def require_admin(user=Depends(current_user)):
@@ -175,7 +180,7 @@ def issue_session(request, response, user, verified_hash=None):
         fresh=db.execute('SELECT * FROM users WHERE id=?',(user['id'],)).fetchone()
         if not fresh or (verified_hash and not hmac.compare_digest(fresh['password_hash'],verified_hash)):
             raise HTTPException(401,'登录信息已改变，请重新登录')
-        user=public_user(fresh)
+        user=public_user(fresh,db)
         db.execute('DELETE FROM sessions WHERE expires_at<=?',(now,))
         db.execute('DELETE FROM sessions WHERE token_hash=?',(digest(request.cookies.get(config.COOKIE_NAME,'')),))
         db.execute('DELETE FROM sessions WHERE token_hash IN (SELECT token_hash FROM sessions WHERE user_id=? ORDER BY expires_at DESC LIMIT -1 OFFSET 4)',(user['id'],))

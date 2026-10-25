@@ -78,6 +78,8 @@ app.add_middleware(CORSMiddleware,allow_origins=config.ALLOWED_ORIGINS,allow_cre
 app.add_middleware(TrustedHostMiddleware,allowed_hosts=config.TRUSTED_HOSTS)
 app.include_router(auth_router)
 app.include_router(business_router)
+from app.workflow import router as workflow_router
+app.include_router(workflow_router)
 from app.knowledge import router as knowledge_router
 app.include_router(knowledge_router)
 from app.civic import router as civic_router

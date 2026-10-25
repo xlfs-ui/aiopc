@@ -1,6 +1,9 @@
 <script setup lang="ts">
 import { computed, nextTick, onMounted, onUnmounted, ref, watch } from 'vue'
 import ResourceCards from './ResourceCards.vue'
+import NotificationCenter from './NotificationCenter.vue'
+import TicketWorkflow from './TicketWorkflow.vue'
+import WorkforceManager from './WorkforceManager.vue'
 import { officialLink } from './officialLinks'
 import AuthPanel from './AuthPanel.vue'
 import AccountSettings from './AccountSettings.vue'
@@ -27,6 +30,9 @@ type ChatMessage = { role: 'assistant' | 'user'; text: string; sources?: { title
 type TicketDetail = TicketItem & { events: { action: string; actor: string; created_at: string }[] }
 
 const isAdmin = computed(() => authUser.value?.role === 'admin')
+const canUseConsole = computed(() => isAdmin.value || !!authUser.value?.is_staff)
+const workforceOpen = ref(false)
+const notifications = ref<InstanceType<typeof NotificationCenter> | null>(null)
 const accountOpen = ref(false)
 const ticketRequestKey = ref(crypto.randomUUID())
 const mode = ref<'resident' | 'console'>('resident')
@@ -88,7 +94,7 @@ const discoveryBusy = ref(false)
 const discoveryError = ref('')
 const activeTicket = ref<TicketDetail | null>(null)
 const activeDocument = ref<{ id: string; chunkId?: string } | null>(null)
-const anyDialogOpen = computed(() => accountOpen.value || discoveryOpen.value || !!activeDocument.value || !!activeTicket.value || !!activePolicy.value || showTicketModal.value || showPolicyModal.value || showActivityModal.value)
+const anyDialogOpen = computed(() => workforceOpen.value || accountOpen.value || discoveryOpen.value || !!activeDocument.value || !!activeTicket.value || !!activePolicy.value || showTicketModal.value || showPolicyModal.value || showActivityModal.value)
 let previousFocus: HTMLElement | null = null
 let originalOverflow = ''
 let hadDialog = false
@@ -134,11 +140,12 @@ async function refreshData() {
   const owner = authUser.value.id
   const requestedMode = mode.value
   void refreshReminders()
+  void notifications.value?.refresh()
   loading.value = true
   errorMessage.value = ''
   try {
     const [ticketData, policyData, activityData, overviewData] = await Promise.all([
-      api<TicketItem[]>(mode.value === 'resident' ? '/api/tickets?mine=true' : '/api/tickets'), api<Policy[]>('/api/policies'), api<ActivityItem[]>('/api/activities'), isAdmin.value && mode.value === 'console' ? api<typeof overview.value>('/api/overview') : Promise.resolve(overview.value),
+      api<TicketItem[]>(mode.value === 'resident' ? '/api/tickets?mine=true' : isAdmin.value ? '/api/tickets' : '/api/tickets?assigned=true'), api<Policy[]>('/api/policies'), api<ActivityItem[]>('/api/activities'), isAdmin.value && mode.value === 'console' ? api<typeof overview.value>('/api/overview') : Promise.resolve(overview.value),
     ])
     if (authUser.value?.id !== owner || mode.value !== requestedMode) return
     tickets.value = ticketData
@@ -158,12 +165,13 @@ function goResident(page: typeof residentPage.value) {
   if (changedMode) void refreshData()
 }
 function goConsole(page: typeof consolePage.value) {
-  if (!isAdmin.value) return
+  if (!canUseConsole.value) return
+  if (!isAdmin.value && page !== 'tickets') return
   const changedMode = mode.value !== 'console'
   consolePage.value = page; mode.value = 'console'; search.value = ''
   if (changedMode) void refreshData()
 }
-function setMode(next: 'resident' | 'console') { if (next === 'console' && !isAdmin.value) return; mode.value = next; search.value = ''; void refreshData() }
+function setMode(next: 'resident' | 'console') { if (next === 'console' && !canUseConsole.value) return; if (next === 'console' && !isAdmin.value) consolePage.value = 'tickets'; mode.value = next; search.value = ''; void refreshData() }
 
 async function sendChat(text = chatInput.value) {
   const message = text.trim()
@@ -262,6 +270,7 @@ function openResource(resource: Resource) {
 function handleShortcut(event: KeyboardEvent) {
   if ((event.ctrlKey || event.metaKey) && event.key.toLowerCase() === 'k') { event.preventDefault(); openDiscovery() }
   if (event.key === 'Escape') {
+    if (workforceOpen.value) { workforceOpen.value = false; return }
     if (activeDocument.value) { activeDocument.value = null; return }
     if (accountOpen.value) { accountOpen.value = false; return }
     if (discoveryOpen.value) discoveryOpen.value = false
@@ -281,7 +290,7 @@ function handleShortcut(event: KeyboardEvent) {
   }
 }
 
-watch([accountOpen, discoveryOpen, activeTicket, activePolicy, showTicketModal, showPolicyModal, showActivityModal], async () => {
+watch([workforceOpen, accountOpen, discoveryOpen, activeTicket, activePolicy, showTicketModal, showPolicyModal, showActivityModal], async () => {
   if (anyDialogOpen.value) {
     if (!hadDialog) { previousFocus = document.activeElement as HTMLElement; originalOverflow = document.body.style.overflow; document.body.style.overflow = 'hidden' }
     hadDialog = true
@@ -304,7 +313,7 @@ watch(chatThreadId, () => {
 watch(showTicketModal, open => { if (open) ticketRequestKey.value = crypto.randomUUID() })
 watch(() => authUser.value?.id, async userId => {
   discoveryController?.abort()
-  accountOpen.value = false; discoveryOpen.value = false; showTicketModal.value = false
+  workforceOpen.value = false; accountOpen.value = false; discoveryOpen.value = false; showTicketModal.value = false
   showPolicyModal.value = false; showActivityModal.value = false; activePolicy.value = null; activeTicket.value = null; activeDocument.value = null
   activityReminders.value = []; reminderError.value = ''; ++reminderRequest
   tickets.value = []; policies.value = []; activities.value = []; discoveryResults.value = []
@@ -396,17 +405,7 @@ function openActivityEditor(activity?: ActivityItem) {
   showActivityModal.value = true
 }
 
-async function advanceTicket(ticket: TicketItem) {
-  const update = ticket.status === '待受理'
-    ? { status: '处理中', assignee: ticket.assignee === '待指派' ? '王师傅' : ticket.assignee }
-    : ticket.status === '处理中' ? { status: '待确认' }
-      : ticket.status === '待确认' ? { status: '已完成' } : null
-  if (!update) return
-  try {
-    await api(`/api/tickets/${ticket.id}`, { method: 'PATCH', body: JSON.stringify(update) })
-    await refreshData()
-  } catch (error) { errorMessage.value = error instanceof Error ? error.message : '状态更新失败' }
-}
+async function advanceTicket(ticket: TicketItem) { await showTicketDetail(ticket.id) }
 
 async function registerActivity(activity: ActivityItem) {
   try {
@@ -461,9 +460,9 @@ onUnmounted(() => { clearInterval(reminderTimer); document.removeEventListener('
         </button>
       </nav>
 
-      <div v-if="isAdmin" class="nav-label work-label">社区工作台</div>
-      <nav v-if="isAdmin" class="side-nav">
-        <button v-for="item in consoleNav" :key="item.id" class="nav-item" :class="{ active: mode === 'console' && consolePage === item.id }" @click="goConsole(item.id)">
+      <div v-if="canUseConsole" class="nav-label work-label">社区工作台</div>
+      <nav v-if="canUseConsole" class="side-nav">
+        <button v-for="item in consoleNav.filter(n => isAdmin || n.id === 'tickets')" :key="item.id" class="nav-item" :class="{ active: mode === 'console' && consolePage === item.id }" @click="goConsole(item.id)">
           <component :is="item.icon" :size="18" :stroke-width="1.8" /><span>{{ item.label }}</span>
         </button>
       </nav>
@@ -471,7 +470,7 @@ onUnmounted(() => { clearInterval(reminderTimer); document.removeEventListener('
       <div class="sidebar-bottom">
         <div class="help-card"><div class="help-icon"><CircleHelp :size="17" /></div><div><strong>需要帮助？</strong><span>社区服务热线 0571-12345</span></div></div>
         <button class="profile-row" @click="accountOpen = true">
-          <div class="avatar">{{ authUser.display_name.slice(0, 1) }}</div><div class="profile-copy"><strong>{{ authUser.display_name }}</strong><span>{{ isAdmin ? '社区管理员' : '居民账号' }}</span></div><ChevronDown :size="15" class="muted" />
+          <div class="avatar">{{ authUser.display_name.slice(0, 1) }}</div><div class="profile-copy"><strong>{{ authUser.display_name }}</strong><span>{{ isAdmin ? '社区管理员' : authUser.is_staff ? '处理人员 / 居民账号' : '居民账号' }}</span></div><ChevronDown :size="15" class="muted" />
         </button>
       </div>
     </aside>
@@ -481,11 +480,11 @@ onUnmounted(() => { clearInterval(reminderTimer); document.removeEventListener('
         <div class="breadcrumb"><span>云水社区</span><span class="crumb-sep">/</span><strong>{{ pageTitle }}</strong></div>
         <div class="topbar-actions">
           <button class="global-search-trigger" @click="openDiscovery()" aria-label="检索社区服务"><Search :size="15" /><span>搜索服务与资料</span><kbd>Ctrl K</kbd></button>
-          <div v-if="isAdmin" class="mode-switch" aria-label="切换使用角色">
+          <div v-if="canUseConsole" class="mode-switch" aria-label="切换使用角色">
             <button :class="{ selected: mode === 'resident' }" @click="setMode('resident')">居民端</button>
             <button :class="{ selected: mode === 'console' }" @click="setMode('console')">工作台</button>
           </div>
-          <button class="icon-button notification-button" aria-label="查看我的服务动态" @click="openDiscovery('我的工单')"><Bell :size="18" /><i></i></button>
+          <NotificationCenter ref="notifications" :key="authUser.id" @ticket="showTicketDetail" @activities="goResident('activities')" @account="accountOpen = true" />
           <div class="top-date">{{ calendarLabel }}</div>
         </div>
       </header>
@@ -583,7 +582,7 @@ onUnmounted(() => { clearInterval(reminderTimer); document.removeEventListener('
         </template>
 
         <template v-else-if="mode === 'console' && consolePage === 'tickets'">
-          <section class="page-intro"><div><div class="eyebrow">社区工作台 · 服务闭环</div><h1>工单处理</h1><p>跟进居民诉求，及时更新处理状态</p></div><div class="intro-stats"><span><i class="mini-status waiting"></i>待受理 {{ tickets.filter(t => t.status === '待受理').length }}</span><span><i class="mini-status working"></i>处理中 {{ tickets.filter(t => t.status === '处理中').length }}</span></div></section>
+          <section class="page-intro"><div><div class="eyebrow">社区工作台 · 服务闭环</div><h1>{{ isAdmin ? '工单处理' : '我的处理任务' }}</h1><p>分派到人 · 记录进展 · 提交结果 · 核实确认</p></div><div class="intro-stats"><button v-if="isAdmin" class="button button-primary" @click="workforceOpen = true"><Users :size="16" />处理人员</button><span><i class="mini-status waiting"></i>待受理 {{ tickets.filter(t => t.status === '待受理').length }}</span><span><i class="mini-status working"></i>处理中 {{ tickets.filter(t => t.status === '处理中').length }}</span></div></section>
           <section class="panel list-panel"><div class="list-toolbar"><div class="filter-tabs"><button v-for="status in ['全部','待受理','处理中','待确认','已完成']" :key="status" :class="{ chosen: ticketFilter === status }" @click="ticketFilter = status as '全部' | TicketStatus">{{ status }}</button></div><label class="search-box"><Search :size="16" /><input v-model="search" placeholder="搜索工单、地址或居民" /></label></div><TicketTable :items="filteredTickets" staff @advance="advanceTicket" /><div v-if="!filteredTickets.length" class="empty-state">没有找到相关工单</div></section>
         </template>
 
@@ -606,7 +605,8 @@ onUnmounted(() => { clearInterval(reminderTimer); document.removeEventListener('
     <KnowledgeDocument v-if="activeDocument" :key="`${authUser.id}:${activeDocument.id}`" :document-id="activeDocument.id" :chunk-id="activeDocument.chunkId" @close="activeDocument = null" />
     <div v-if="discoveryOpen" class="modal-backdrop discovery-backdrop" @click.self="discoveryOpen = false"><section class="discovery-modal" role="dialog" aria-modal="true" aria-label="社区服务与内容检索"><header><div><span class="hero-kicker"><Search :size="14" />COMMUNITY DISCOVERY</span><h2>找内容，也找到下一步</h2><p>同时检索政策、办理流程、社区活动与本人工单</p></div><button class="icon-button" aria-label="关闭检索" @click="discoveryOpen = false"><X :size="20" /></button></header><form class="discovery-search" @submit.prevent="searchDiscovery"><Search :size="20" /><input ref="discoveryInput" v-model="discoveryQuery" maxlength="1000" placeholder="例如：居住证需要什么材料？" aria-label="检索关键词" /><button class="button button-dark">检索</button></form><div class="discovery-suggestions"><button v-for="q in ['居住证', '养老补贴', '报修流程', '我的工单', '社区活动']" :key="q" @click="discoveryQuery = q">{{ q }}</button></div><div class="discovery-results" aria-live="polite"><div class="discovery-result-head"><strong>{{ discoveryQuery ? '相关内容与服务' : '常用内容与服务' }}</strong><span>{{ discoveryBusy ? '检索中…' : `${discoveryResults.length} 项结果` }}</span></div><div v-if="discoveryBusy" class="search-skeleton"><i v-for="n in 3" :key="n"></i></div><div v-else-if="discoveryError" class="empty-state">{{ discoveryError }}<button class="more-results" @click="searchDiscovery">重新检索</button></div><ResourceCards v-else-if="discoveryResults.length" :items="discoveryResults" @open="openResource" /><div v-else class="empty-state"><Search :size="30" /><h3>暂时没有匹配内容</h3><p>换个关键词试试，或描述具体的办理事项。</p></div></div><footer><ShieldCheck :size="13" />本地演示资料 · 办理条件请向对应服务窗口核实 <kbd>ESC 关闭</kbd></footer></section></div>
 
-    <div v-if="activeTicket" class="modal-backdrop" @click.self="activeTicket = null"><article class="policy-modal ticket-detail-modal" role="dialog" aria-modal="true" aria-label="工单详情"><div class="modal-header"><div><span class="modal-kicker">服务记录 · {{ activeTicket.id }}</span><h2>{{ activeTicket.category }}</h2></div><button class="icon-button" aria-label="关闭工单详情" @click="activeTicket = null"><X :size="19" /></button></div><div class="ticket-detail-summary"><span :class="['status-pill', statusClass(activeTicket.status)]">{{ activeTicket.status }}</span><p>{{ activeTicket.description }}</p><span><MapPin :size="14" />{{ activeTicket.location }}</span><span><Users :size="14" />处理人：{{ activeTicket.assignee }}</span></div><h3>流转记录</h3><ol class="ticket-history"><li v-for="(event, i) in activeTicket.events" :key="i"><i></i><div><strong>{{ event.action }}</strong><span>{{ event.actor }} · {{ event.created_at.replace('T', ' ') }}</span></div></li></ol><button class="button button-primary modal-done" @click="activeTicket = null">完成查看 <Check :size="15" /></button></article></div>
+    <TicketWorkflow v-if="activeTicket" :key="activeTicket.id" :ticket-id="activeTicket.id" @close="activeTicket = null" @changed="refreshData" />
+    <WorkforceManager v-if="workforceOpen && isAdmin" :key="authUser.id" @close="workforceOpen = false" @changed="refreshData" />
 
     <div v-if="showTicketModal" class="modal-backdrop" @click.self="showTicketModal = false"><form class="ticket-modal" @submit.prevent="submitTicket"><div class="modal-header"><div><span class="modal-kicker">居民服务 · 核对并提交</span><h2>提交报事报修</h2></div><button type="button" class="icon-button" aria-label="关闭" @click="showTicketModal = false"><X :size="19" /></button></div><p class="modal-desc">核对位置与问题，点击提交后才会生成正式工单。</p><label>问题位置 <span>*</span><input v-model="newTicket.location" required minlength="2" maxlength="100" placeholder="例如：3幢2单元5楼" /></label><label>问题类型<select v-model="newTicket.category"><option>公共设施</option><option>公共照明</option><option>道路设施</option><option>给排水</option><option>环境卫生</option><option>噪音问题</option><option>其他诉求</option></select></label><label>问题描述 <span>*</span><textarea v-model="newTicket.description" required minlength="3" maxlength="500" rows="4" placeholder="请描述遇到的问题，便于工作人员处理"></textarea></label><div class="modal-row"><label>联系人<input :value="authUser.display_name" readonly aria-label="当前账号称呼" /></label><label>联系电话<input v-model="newTicket.phone" maxlength="30" placeholder="联系电话，可选填" /></label></div><label class="priority-toggle"><input v-model="newTicket.priority" type="checkbox" true-value="较急" false-value="普通" /><span class="fake-check"><Check :size="13" /></span>情况较急，需要优先处理</label><div class="modal-actions"><button type="button" class="button button-white" @click="showTicketModal = false">取消</button><button class="button button-primary" :disabled="ticketSaving"><Send :size="15" />{{ ticketSaving ? '提交中…' : '提交工单' }}</button></div></form></div>
 
@@ -629,13 +629,13 @@ export default defineComponent({
       setup(props, { emit }) {
         return () => h('div', { class: 'table-scroll' }, [
           h('table', { class: 'ticket-table' }, [
-            h('thead', [h('tr', [h('th', '诉求内容'), h('th', '提交居民'), h('th', '位置'), h('th', '提交时间'), h('th', '当前状态'), ...(props.staff ? [h('th', '处理人员'), h('th', '操作')] : [])])]),
+            h('thead', [h('tr', [h('th', '诉求内容'), h('th', '提交居民'), h('th', '位置'), h('th', '提交时间'), h('th', '当前状态'), ...(props.staff ? [h('th', '处理人员'), h('th', '操作')] : [h('th', '操作')])])]),
             h('tbody', props.items.map((item) => h('tr', { key: item.id }, [
               h('td', { class: 'td-ticket' }, [h('span', { class: 'table-category-icon' }, [h(Wrench, { size: 15 })]), h('span', [h('strong', item.category), h('small', item.description)])]),
               h('td', [h('span', { class: 'resident-cell' }, [h('span', { class: 'mini-avatar' }, item.resident.slice(0, 1)), item.resident])]),
               h('td', { class: 'location-cell' }, item.location), h('td', { class: 'time-cell' }, item.created_at),
               h('td', [h('span', { class: ['status-pill', ({ '待受理': 'status-waiting', '处理中': 'status-working', '待确认': 'status-confirm', '已完成': 'status-done' } as Record<TicketStatus, string>)[item.status]] }, item.status)]),
-              ...(props.staff ? [h('td', { class: 'assignee-cell' }, item.assignee), h('td', [item.status !== '已完成' ? h('button', { class: 'table-action', onClick: () => emit('advance', item) }, ({ '待受理': '受理工单', '处理中': '提交确认', '待确认': '确认完成' } as Record<TicketStatus, string>)[item.status]) : h('span', { class: 'done-check' }, [h(Check, { size: 15 }), '已完成'])])] : []),
+              ...(props.staff ? [h('td', { class: 'assignee-cell' }, item.assignee), h('td', [h('button', { class: 'table-action', onClick: () => emit('advance', item) }, item.status === '待受理' ? '查看 / 分派' : item.status === '处理中' ? '进展 / 反馈' : item.status === '待确认' ? '核对 / 返工' : '查看记录')])] : [h('td', [h('button', { class: 'table-action', onClick: () => emit('advance', item) }, '查看详情')])]),
             ]))),
           ]),
         ])

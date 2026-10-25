@@ -1,6 +1,6 @@
 import { ref } from 'vue'
 
-export type User = { id: string; username: string; display_name: string; role: 'resident' | 'admin'; created_at: string }
+export type User = { id: string; username: string; display_name: string; role: 'resident' | 'admin'; is_staff?: boolean; created_at: string }
 export const authUser = ref<User | null>(null)
 export const authReady = ref(false)
 export const authNotice = ref('')
@@ -22,6 +22,7 @@ export function clearSession(message = '', notify = true) {
 }
 
 export async function authRequest<T>(path: string, init?: RequestInit): Promise<T> {
+  const requestOwner = authUser.value?.id
   const headers = new Headers(init?.headers)
   headers.set('Content-Type', 'application/json')
   if (!['GET', 'HEAD', 'OPTIONS'].includes((init?.method || 'GET').toUpperCase()) && csrfToken) headers.set('X-CSRF-Token', csrfToken)
@@ -29,7 +30,7 @@ export async function authRequest<T>(path: string, init?: RequestInit): Promise<
   if (!response.ok) {
     const body = await response.json().catch(() => ({}))
     const detail = Array.isArray(body.detail) ? body.detail.map((item: { msg: string }) => item.msg).join('；') : body.detail
-    if (response.status === 401 && path !== '/api/auth/login') clearSession(path === '/api/auth/me' ? '' : '登录已过期，请重新登录。')
+    if (response.status === 401 && path !== '/api/auth/login' && authUser.value?.id === requestOwner) clearSession(path === '/api/auth/me' ? '' : '登录已过期，请重新登录。')
     throw new Error(detail || `请求失败（${response.status}）`)
   }
   return response.json() as Promise<T>

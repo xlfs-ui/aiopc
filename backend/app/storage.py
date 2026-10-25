@@ -19,7 +19,7 @@ _initialized = set()
 BUSINESS = {
     'policies': {'id':'TEXT PRIMARY KEY','title':'TEXT NOT NULL','category':'TEXT NOT NULL','summary':'TEXT NOT NULL','steps':'TEXT NOT NULL','source':'TEXT NOT NULL','source_url':"TEXT NOT NULL DEFAULT ''",'phone':'TEXT NOT NULL DEFAULT \'\'','keywords':'TEXT NOT NULL','updated_at':'TEXT NOT NULL'},
     'activities': {'id':'TEXT PRIMARY KEY','title':'TEXT NOT NULL','category':'TEXT NOT NULL','date':'TEXT NOT NULL','time':'TEXT NOT NULL','location':'TEXT NOT NULL','capacity':'INTEGER NOT NULL','registered':'INTEGER NOT NULL DEFAULT 0','audience':'TEXT NOT NULL','description':'TEXT NOT NULL','tag':'TEXT NOT NULL'},
-    'tickets': {'id':'TEXT PRIMARY KEY','owner_id':'TEXT','resident':'TEXT NOT NULL','phone':'TEXT NOT NULL DEFAULT \'\'','location':'TEXT NOT NULL','category':'TEXT NOT NULL','description':'TEXT NOT NULL','status':'TEXT NOT NULL','assignee':'TEXT NOT NULL','created_at':'TEXT NOT NULL','updated_at':'TEXT NOT NULL','priority':'TEXT NOT NULL DEFAULT \'普通\''},
+    'tickets': {'id':'TEXT PRIMARY KEY','owner_id':'TEXT','resident':'TEXT NOT NULL','phone':'TEXT NOT NULL DEFAULT \'\'','location':'TEXT NOT NULL','category':'TEXT NOT NULL','description':'TEXT NOT NULL','status':'TEXT NOT NULL','assignee':'TEXT NOT NULL','created_at':'TEXT NOT NULL','updated_at':'TEXT NOT NULL','priority':'TEXT NOT NULL DEFAULT \'普通\'','assigned_staff_id':"TEXT NOT NULL DEFAULT ''",'resolution':"TEXT NOT NULL DEFAULT ''",'due_at':"TEXT NOT NULL DEFAULT ''",'version':'INTEGER NOT NULL DEFAULT 0'},
     'registrations': {'id':'TEXT PRIMARY KEY','activity_id':'TEXT NOT NULL REFERENCES activities(id)','owner_id':'TEXT','resident':'TEXT NOT NULL','created_at':'TEXT NOT NULL'},
 }
 SCHEMA = [
@@ -54,7 +54,7 @@ def _upsert(db, table, row, position):
     fields=list(BUSINESS[table])+['_position']
     values=[]
     for field in fields:
-        value=position if field=='_position' else _key(table,row,position) if field=='id' else row.get(field, None if field=='owner_id' else '普通' if field=='priority' else '')
+        value=position if field=='_position' else _key(table,row,position) if field=='id' else row.get(field, None if field=='owner_id' else 0 if field=='version' else '普通' if field=='priority' else '')
         if field in ('steps','keywords'): value=json.dumps(value,ensure_ascii=False)
         values.append(value)
     updates=','.join(f'{field}=excluded.{field}' for field in fields if field!='id')
@@ -80,7 +80,7 @@ def _initialize(db):
     with _lock:
         if path in _initialized: return
         version=db.execute('PRAGMA user_version').fetchone()[0]
-        if version>4: raise RuntimeError('Database schema is newer than this application')
+        if version>5: raise RuntimeError('Database schema is newer than this application')
         if version<2 and db.execute("SELECT 1 FROM sqlite_master WHERE name='snapshots'").fetchone():
             backup=DB_PATH.with_name(DB_PATH.stem+'.pre-v2.'+datetime.now().strftime('%Y%m%d%H%M%S%f')+'.db')
             destination=sqlite3.connect(backup)
@@ -115,6 +115,13 @@ def _initialize(db):
                 if 'source_url' not in {row[1] for row in db.execute('PRAGMA table_info(policies)')}:
                     db.execute("ALTER TABLE policies ADD COLUMN source_url TEXT NOT NULL DEFAULT ''")
                 db.execute('PRAGMA user_version=4')
+            if version<5:
+                from app.operations_schema import SCHEMA as operation_schema, TICKET_COLUMNS
+                existing={row[1] for row in db.execute('PRAGMA table_info(tickets)')}
+                for name,definition in TICKET_COLUMNS.items():
+                    if name not in existing:db.execute(f'ALTER TABLE tickets ADD COLUMN {name} {definition}')
+                for statement in operation_schema:db.execute(statement)
+                db.execute('PRAGMA user_version=5')
             db.commit()
             _initialized.add(path)
         except Exception:

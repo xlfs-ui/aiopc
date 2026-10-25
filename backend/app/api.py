@@ -141,9 +141,17 @@ def update_policy(policy_id: str,payload: PolicyPayload,user=Depends(require_adm
 
 
 @router.get('/tickets')
-def list_tickets(status: str=Query(default='',max_length=20),q: str=Query(default='',max_length=100),mine: bool=False,user=Depends(current_user)):
-    items=storage.tickets_for(user['id'] if user['role']!='admin' or mine else None,status,q)
-    return [ticket_view(t) for t in items]
+def list_tickets(status: str=Query(default='',max_length=20),q: str=Query(default='',max_length=100),mine: bool=False,assigned: bool=False,user=Depends(current_user)):
+    from app.workflow import staff_for, ticket_view as access_view
+    with storage.connection() as db:
+        staff=staff_for(db,user)
+        if assigned:
+            if not staff and user['role']!='admin':raise HTTPException(403,'没有处理人员权限')
+            rows=[dict(r) for r in db.execute('SELECT * FROM tickets WHERE assigned_staff_id=? ORDER BY updated_at DESC',(staff['id'] if staff else '',))]
+            if not staff:rows=[]
+            items=[t for t in rows if (not status or status=='全部' or t['status']==status) and (not q or q.lower() in (t['description']+' '+t['location']+' '+t['id']).lower())]
+    if not assigned:items=storage.tickets_for(user['id'] if user['role']!='admin' or mine else None,status,q)
+    return [access_view(t,user,staff) for t in items]
 
 
 @router.post('/tickets',status_code=201)
@@ -165,30 +173,9 @@ def create_ticket(payload: TicketCreate,key: str | None=Header(default=None,alia
         result=ticket_view(ticket)
         db.execute('INSERT INTO idempotency VALUES (?,?,?,?,?)',(user['id'],key,signature,json.dumps(result,ensure_ascii=False),int(time.time())))
         storage.audit(db,'提交工单',ticket['id'],user['id'])
+        from app.workflow import notify_ticket_created
+        notify_ticket_created(db,ticket,user)
         return result
-
-
-@router.get('/tickets/{ticket_id}')
-def ticket_detail(ticket_id: str,user=Depends(current_user)):
-    ticket=next((t for t in storage.tickets_for(None if user['role']=='admin' else user['id']) if t['id']==ticket_id),None)
-    if not ticket: raise HTTPException(404,'未找到该工单')
-    return {**ticket_view(ticket),'events':storage.events(ticket_id) or [{'action':'历史演示记录 · '+ticket['status'],'actor':ticket['assignee'],'created_at':ticket['updated_at']}]}
-
-
-@router.patch('/tickets/{ticket_id}')
-def update_ticket(ticket_id: str,payload: TicketUpdate,user=Depends(require_admin)):
-    changes=payload.model_dump(exclude_none=True)
-    if not changes: raise HTTPException(422,'请指定需要更新的内容')
-    allowed={'待受理':{'处理中'},'处理中':{'待确认'},'待确认':{'处理中','已完成'},'已完成':set()}
-    with storage.transaction(write=True,tables=('tickets',)) as (data,db):
-        ticket=next((t for t in data['tickets'] if t['id']==ticket_id),None)
-        if not ticket: raise HTTPException(404,'未找到该工单')
-        if 'status' in changes and changes['status']!=ticket['status'] and changes['status'] not in allowed[ticket['status']]:
-            raise HTTPException(409,'不允许跳过工单处理步骤')
-        ticket.update(changes)
-        ticket['updated_at']=datetime.now().isoformat(timespec='seconds')
-        storage.audit(db,'工单更新为'+ticket['status'],ticket_id,user['id'])
-        return ticket_view(ticket)
 
 
 @router.get('/activities')
@@ -240,6 +227,8 @@ def update_activity(activity_id: str,payload: ActivityPayload,user=Depends(requi
         if payload.capacity<used: raise HTTPException(409,'活动名额不能小于已报名人数')
         activity.update(payload.model_dump())
         storage.audit(db,'更新活动',activity_id,user['id'])
+        from app.workflow import notify_activity
+        notify_activity(db,activity,'你报名的活动安排已更新')
         return activity
 
 
@@ -254,6 +243,8 @@ def register_for_user(activity_id,user):
             raise HTTPException(409,'活动名额已满')
         row={'activity_id':activity_id,'resident':user['display_name'],'owner_id':user['id'],'created_at':date.today().isoformat()}
         data['registrations'].append(row)
+        from app.workflow import notify
+        notify(db,user['id'],'registered:'+activity_id,'activity_update','活动报名成功',activity['title']+' · '+activity['date']+' '+activity['time'],activity_id)
         storage.audit(db,'报名活动',activity_id,user['id'])
         return {'message':'报名成功','registration':{k:v for k,v in row.items() if k!='owner_id'}}
 
